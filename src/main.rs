@@ -1,15 +1,23 @@
 #[macro_use]
 extern crate lazy_static;
 mod scanner;
+mod parser;
+mod ast;
 mod token;
 use std::{io::{self, Read}};
+use parser::Parser;
 use scanner::{Scanner};
 fn run(s: String) {
     let mut sc = Scanner::new(s);
     let res = sc.scan();
     match res {
-        Ok((_, vec)) => println!("{:#?}", vec),
-        Err(e) => println!("{:?}",e),
+        Ok(tokens) => {
+            println!("{:?}", tokens);
+            let mut parser = Parser::new(tokens);
+            let res = parser.expression();
+            println!("{:?}", res);
+        },
+        Err(s) => { println!("{}", s); return; }
     }
 }
 fn run_prompt() -> io::Result<()> {
