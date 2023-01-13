@@ -10,7 +10,7 @@ use nom::{
     combinator::{map, recognize, verify}, 
     character::{
         complete::{one_of, digit1, }, 
-        is_alphabetic
+        is_alphanumeric
     }, 
     branch::alt, 
     bytes::{complete::{tag, take, take_while, take_while_m_n}}, 
@@ -54,7 +54,7 @@ fn unary_op(input: &[u8]) -> IResult<&[u8], UnaryOp> {
 }
 
 fn primary(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
-    use Literal::*;
+    use Object::*;
     preceded(skip_all, alt((
         (map(parse_number, |i| Box::new(Expr::Literal(Number(i))))),
         (map(parse_string, |s| Box::new(Expr::Literal(String(s))))),
@@ -70,9 +70,16 @@ pub fn expression(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
     delimited(skip_all, equality, skip_all)(input)
 }
 
-fn equality(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
+type ExprResult<'a> = IResult<&'a[u8], Box<Expr>>;
+fn chainl<'a>(
+    higher: impl Fn(&'a [u8]) -> ExprResult<'a> + Copy,
+    get_op: impl Fn(&'a [u8]) -> IResult<&'a [u8], BinaryOp> + Copy
+)
+    -> impl Fn(&'a [u8]) -> ExprResult<'a>
+{
+    move |input| 
     preceded(skip_all, map(
-        pair(comparison, many0(pair(equality_op, comparison))),
+        pair(higher, many0(pair(get_op, higher))),
         |(mut expr, v)| -> Box<Expr> {
             for (op, right) in v {
                 expr = Box::new(Expr::Binary(op, expr, right));
@@ -81,39 +88,12 @@ fn equality(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
         }
     ))(input)
 }
-fn comparison(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
-    preceded(skip_all, map(
-        pair(term, many0(pair(comparsion_op, term))),
-        |(mut expr, v)| -> Box<Expr> {
-            for (op, right) in v {
-                expr = Box::new(Expr::Binary(op, expr, right));
-            }
-            expr
-        }
-    ))(input)
-}
-fn term(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
-    preceded(skip_all, map(
-        pair(factor, many0(pair(term_op, factor))),
-        |(mut expr, v)| -> Box<Expr> {
-            for (op, right) in v {
-                expr = Box::new(Expr::Binary(op, expr, right));
-            }
-            expr
-        }
-    ))(input)
-}
-fn factor(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
-    preceded(skip_all, map(
-        pair(unary, many0(pair(factor_op, unary))),
-        |(mut expr, v)| -> Box<Expr> {
-            for (op, right) in v {
-                expr = Box::new(Expr::Binary(op, expr, right));
-            }
-            expr
-        }
-    ))(input)
-}
+
+fn equality(input: &[u8]) -> ExprResult { chainl(comparison, equality_op)(input) }
+fn comparison(input: &[u8]) -> ExprResult { chainl(term, comparsion_op)(input) }
+fn term(input: &[u8]) -> ExprResult { chainl(factor, term_op)(input) }
+fn factor(input: &[u8]) -> ExprResult { chainl(unary, factor_op)(input) }
+
 fn unary(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
     preceded(skip_all, alt((
         map(pair(unary_op, unary), |(op, expr)| Box::new(Expr::Unary(op, expr))),
@@ -146,7 +126,7 @@ fn parse_keywords<'a>(word: &'a [u8]) ->
     move |input| 
         map(
             verify(
-                take_while_m_n(word.len(), word.len() + 1, |c| is_alphabetic(c) || c == b'_'), 
+                take_while_m_n(word.len(), word.len() + 1, |c| is_alphanumeric(c) || c == b'_'), 
                 |s: &[u8]| s == word), 
             |_| ()
         )(input)

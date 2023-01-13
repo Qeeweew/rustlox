@@ -1,18 +1,18 @@
 use crate::token::{Token, TokenType};
 
-trait Visitor<T> {
-    fn visit(&mut self, e: &Expr) -> T;
+pub trait Visitor<T> {
+    fn visit_expr(&mut self, e: &Expr) -> T;
 }
 
 #[derive(Debug)]
 pub enum Expr {
-    Literal(Literal),
+    Literal(Object),
     Unary(UnaryOp, Box<Expr>), // (op, expr)
     Binary(BinaryOp, Box<Expr>, Box<Expr>), // (op, left, right)
-    Grouping(Box<Expr>),
+    // Grouping(Box<Expr>),
 }
-#[derive(Debug)]
-pub enum Literal {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Object {
     Number(f64),
     String(String),
     Bool(bool),
@@ -35,7 +35,7 @@ impl UnaryOp {
     }
 
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum BinaryOp {
     EQ, NEQ, LT, LE, GT, GE, ADD, SUB, MUL, DIV
 }
@@ -60,26 +60,24 @@ impl BinaryOp {
 
 struct PrintExpr {}
 impl Visitor<String> for PrintExpr {
-    fn visit(&mut self, e: &Expr) -> String {
+    fn visit_expr(&mut self, e: &Expr) -> String {
         match e {
             Expr::Literal(n) => match n {
-                Literal::Number(x) => x.to_string(),
-                Literal::String(s) => s.clone(),
-                Literal::Bool(b) => b.to_string(),
-                Literal::Nil => "nil".into(),
+                Object::Number(x) => x.to_string(),
+                Object::String(s) => s.clone(),
+                Object::Bool(b) => b.to_string(),
+                Object::Nil => "nil".into(),
             },
             Expr::Unary(op, expr) => {
-                format!("({:?} {})", op, self.visit(expr))
+                format!("({:?} {})", op, self.visit_expr(expr))
             },
             Expr::Binary(op, left, right) => {
-                format!("({} {:?} {})", self.visit(left), op, self.visit(right))
+                format!("({} {:?} {})", self.visit_expr(left), op, self.visit_expr(right))
             },
-            Expr::Grouping(expr) => {
-                format!("(group {})", self.visit(expr))
-            }
         }
     }
 }
+
 mod test {
     use super::*;
 
@@ -88,14 +86,14 @@ mod test {
         let expr = Expr::Binary(BinaryOp::MUL, 
             Box::new(
                 Expr::Unary(UnaryOp::Neg, 
-                    Box::new(Expr::Literal(Literal::Number(123.0))))
+                    Box::new(Expr::Literal(Object::Number(123.0))))
             ), 
-            Box::new(Expr::Grouping(
-                Box::new(Expr::Literal(Literal::Number(45.67))
-            ))
+            Box::new(
+                Expr::Literal(Object::Number(45.67)
+            )
         ));
         let mut printer = PrintExpr{};
-        println!("{}", printer.visit(&expr));
+        println!("{}", printer.visit_expr(&expr));
     }
 
 }

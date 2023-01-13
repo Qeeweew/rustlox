@@ -87,20 +87,20 @@ impl Parser {
         self.primary()
     }
     fn primary(&mut self) -> Box<Expr> {
-        use Literal::*;
+        use Object::*;
         let t = self.peek();
         self.advance();
+        if t.token_type == TokenType::LeftParen {
+            let expr = self.expression();
+            self.consume(TokenType::RightParen);
+            return expr;
+        }
         Box::new(match t.token_type {
             TokenType::FALSE  => Expr::Literal(Bool(false)),
             TokenType::TRUE   => Expr::Literal(Bool(true)),
             TokenType::NIL    => Expr::Literal(Nil),
             TokenType::Number => Expr::Literal(Number(t.literal.unwrap().parse::<f64>().unwrap())),
             TokenType::String => Expr::Literal(String(*t.literal.unwrap())),
-            TokenType::LeftParen => {
-                let expr = self.expression();
-                self.consume(TokenType::RightParen);
-                Expr::Grouping(expr)
-            },
             _ => panic!("unknown expression"),
         })
     }
