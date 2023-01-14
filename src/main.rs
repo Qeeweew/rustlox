@@ -1,21 +1,28 @@
+extern crate alloc;
 #[macro_use]
 extern crate lazy_static;
 mod parser2;
+mod object;
 mod interpreter;
 mod ast;
-mod token;
 use std::{io::{self, Read}};
-use ast::Visitor;
 use interpreter::Interpreter;
 fn run(s: String) {
-    let res = parser2::expression(s.as_bytes());
-    let mut interpreter = Interpreter{};
-    let res = res.map(|(_, ast)| interpreter.visit_expr(&ast));
+    let res = parser2::program(s.as_bytes());
+    let mut interpreter = Interpreter::new();
     match res {
-        Ok(res1) => {
-            match res1 {
-                Ok(res2) => println!("{:#?}", res2),
-                Err(e) => println!("{:?}", e),
+        Ok((reamin, ast)) => {
+            for stmt in &ast {
+                println!("{}", stmt)
+            }
+            if reamin.len() != 0 {
+                println!("parse failed at {}", String::from_utf8(reamin.into()).unwrap())
+            } else {
+                let res = interpreter.interpret(&ast);
+                match res {
+                    Ok(_) => println!("success!"),
+                    Err(e) => println!("{:?}", e),
+                };
             }
         }
         Err(e) => println!("{:?}", e),
@@ -41,14 +48,15 @@ fn run_file(path: &str) -> io::Result<()> {
     Ok(())
 }
 fn main() -> io::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 2 {
-        println!("Usage: jok [script]");
-        std::process::exit(64);
-    } else if args.len() == 2 {
-        run_file(&args[1])?;
-    } else {
-        run_prompt()?;
-    }
-    Ok(())
+    // let args: Vec<String> = std::env::args().collect();
+    // if args.len() > 2 {
+    //     println!("Usage: jok [script]");
+    //     std::process::exit(64);
+    // } else if args.len() == 2 {
+    //     run_file(&args[1])?;
+    // } else {
+    //     run_prompt()?;
+    // }
+    // Ok(())
+    run_file("1.txt")
 }

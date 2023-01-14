@@ -1,21 +1,21 @@
 use core::{str::{self}};
-use std::collections::{HashSet};
-
-use crate::ast::{BinaryOp, UnaryOp, Expr};
+use std::{collections::{HashSet}};
 
 use super::ast::*;
+use super::object::*;
 
+use alloc::rc::Rc;
 use nom::{
     IResult, 
-    combinator::{map, recognize, verify, opt, map_res, cut}, 
+    combinator::{map, recognize, verify, opt, map_res, cut, value}, 
     character::{
         complete::{one_of, digit1, }, 
         is_alphanumeric, is_alphabetic
     }, 
     branch::alt, 
     bytes::{complete::{take, take_while, take_while_m_n, take_while1, tag}}, 
-    sequence::{delimited, preceded, pair, terminated}, 
-    multi::{many0, many_till}, 
+    sequence::{delimited, preceded, pair, terminated, tuple}, 
+    multi::{many0, many_till, separated_list1, separated_list0}, 
     AsBytes, error::{context, ErrorKind, VerboseError, FromExternalError}, error_position
 };
 
@@ -26,44 +26,54 @@ macro_rules! skip {
 
 fn equality_op(input: &[u8]) -> IResult<&[u8], BinaryOp> {
     alt((
-        map(tag("!="), |_| BinaryOp::NEQ),
-        map(tag("=="), |_| BinaryOp::EQ)
+        value(BinaryOp::NEQ, tag("!=")),
+        value(BinaryOp::EQ, tag("=="))
     ))(input)
 }
 fn comparsion_op(input: &[u8]) -> IResult<&[u8], BinaryOp> {
     alt((
-        map(tag(">"), |_| BinaryOp::GT),
-        map(tag("<"), |_| BinaryOp::LT),
-        map(tag(">="), |_| BinaryOp::GE),
-        map(tag("<="), |_| BinaryOp::LE),
+        value(BinaryOp::GE, tag(">=")),
+        value(BinaryOp::LE, tag("<=")),
+        value(BinaryOp::GT, tag(">")),
+        value(BinaryOp::LT, tag("<")),
     ))(input)
 }
 
 fn term_op(input: &[u8]) -> IResult<&[u8], BinaryOp> {
     alt((
-        map(tag("-"), |_| BinaryOp::SUB),
-        map(tag("+"), |_| BinaryOp::ADD),
+        value(BinaryOp::SUB, tag("-")),
+        value(BinaryOp::ADD, tag("+")),
     ))(input)
 }
 fn factor_op(input: &[u8]) -> IResult<&[u8], BinaryOp> {
     alt((
-        map(tag("/"), |_| BinaryOp::DIV),
-        map(tag("*"), |_| BinaryOp::MUL),
+        value(BinaryOp::DIV, tag("/")),
+        value(BinaryOp::MUL, tag("*")),
     ))(input)
 }
 fn unary_op(input: &[u8]) -> IResult<&[u8], UnaryOp> {
     alt((
-        map(tag("!"), |_| UnaryOp::Not),
-        map(tag("-"), |_| UnaryOp::Neg),
+        value(UnaryOp::Not, tag("!")),
+        value(UnaryOp::Neg, tag("-"))
     ))(input)
 }
+fn or_op(input: &[u8]) -> IResult<&[u8], BinaryOp> {
+    value(BinaryOp::OR, parse_keywords("or".as_bytes()))(input)
+}
+fn and_op(input: &[u8]) -> IResult<&[u8], BinaryOp> {
+    value(BinaryOp::AND, parse_keywords("and".as_bytes()))(input)
+}
 
-fn primary(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
+
+type ExprResult<'a> = IResult<&'a[u8], Expr>;
+type StmtResult<'a> = IResult<&'a[u8], Stmt>;
+
+fn primary(input: &[u8]) -> ExprResult {
     use Object::*;
     skip!(alt((
-        (map(parse_number, |i| Box::new(Expr::Literal(Number(i))))),
-        (map(parse_string, |s| Box::new(Expr::Literal(String(Box::new(s)))))),
-        (map(identifier_or_keywords, |s| Box::new(
+        map(parse_number, |i| Expr::Literal(Number(i))),
+        map(parse_string, |s| Expr::Literal(String(Box::new(s)))),
+        map(identifier_or_keywords, |s| 
             if s == "true" {
                 Expr::Literal(Bool(true))
             } else if s == "false" {
@@ -71,24 +81,22 @@ fn primary(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
             } else if s == "nil" {
                 Expr::Literal(Nil)
             } else {
-                Expr::Varible(Box::new(s))
+                Expr::Varible(s)
             }
-        ))),
+        ),
         delimited(tag("("), expression, tag(")"))
     )))(input)
 }
 
 
-type ExprResult<'a> = IResult<&'a[u8], Box<Expr>>;
-type StmtResult<'a> = IResult<&'a[u8], Box<Stmt>>;
 macro_rules! chainl {
     ($lower: ident, $higher: ident, $get_op: ident) => {
         fn $lower(input: &[u8]) -> ExprResult {
-            skip!(map(
-                pair($higher, many0(pair($get_op, $higher))),
-                |(mut expr, v)| -> Box<Expr> {
+            (map(
+                pair($higher, many0(pair(delimited(skip_all, $get_op, skip_all), $higher))),
+                |(mut expr, v)| -> Expr {
                     for (op, right) in v {
-                        expr = Box::new(Expr::Binary(op, expr, right));
+                        expr = Expr::Binary(op, Box::new(expr), Box::new(right));
                     }
                     expr
                 }
@@ -96,16 +104,13 @@ macro_rules! chainl {
         }
     };
 }
-pub enum MyCustomError {
-    ParserError(String),
-}
 
 pub fn expression(input: &[u8]) -> ExprResult { skip!(assinment)(input) }
 pub fn assinment(input: &[u8]) -> ExprResult {
-    let (next_input, (expr, eq)) = pair(equality, opt(preceded(tag("="), cut(assinment))))(input)?;
+    let (next_input, (expr, eq)) = pair(logic_or, opt(preceded(tag("="), cut(assinment))))(input)?;
     if let Some(e) = eq {
-        if let Expr::Varible(s) = *expr {
-            Ok((next_input, Box::new(Expr::Assign(s, e))))
+        if let Expr::Varible(s) = expr {
+            Ok((next_input, Expr::Assign(s, Box::new(e))))
         } else {
             Err(nom::Err::Failure(nom::error::Error{input: next_input, code: ErrorKind::Satisfy}))
         }
@@ -114,17 +119,32 @@ pub fn assinment(input: &[u8]) -> ExprResult {
     }
 }
 
+chainl!(logic_or, logic_and, or_op);
+chainl!(logic_and, equality, and_op);
 chainl!(equality, comparison, equality_op);
 chainl!(comparison, term, comparsion_op);
 chainl!(term, factor, term_op);
 chainl!(factor, unary, factor_op);
 
-fn unary(input: &[u8]) -> IResult<&[u8], Box<Expr>> {
-    skip!(alt((
-        map(pair(unary_op, unary), |(op, expr)| Box::new(Expr::Unary(op, expr))),
-        primary
-    )))(input)
+fn unary(input: &[u8]) -> ExprResult {
+    alt((
+        map(pair(unary_op, unary), |(op, expr)| Expr::Unary(op, Box::new(expr))),
+        call
+    ))(input)
 }
+
+fn call(input: &[u8]) -> ExprResult {
+    map(
+        pair(primary, many0(delimited(delimited(skip_all, tag("("), skip_all), separated_list0(tag(","), expression), cut(tag(")"))))),
+        |(mut expr, arguments_list)| -> Expr {
+            for arguments in arguments_list {
+                expr = Expr::Call(Box::new(expr), arguments)
+            }
+            expr
+        }
+    )(input)
+}
+
 
 fn parse_number(input: &[u8]) -> IResult<&[u8], f64> {
     // [0-9]+.? [0-9]+
@@ -158,13 +178,13 @@ fn parse_keywords<'a>(word: &'a [u8]) ->
 fn print_stmt(input: &[u8]) -> StmtResult {
     map(
         delimited(parse_keywords("print".as_bytes()), expression, tag(";")),
-        |expr| Box::new(Stmt::PrintStmt(expr))
+        |expr| Stmt::Print(expr)
     )(input)
 }
 fn expr_stmt(input: &[u8]) -> StmtResult {
     map(
         terminated(expression, tag(";")),
-        |expr| Box::new(Stmt::ExprStmt(expr))
+        |expr| Stmt::Expression(expr)
     )(input)
 }
 fn var_decl(input: &[u8]) -> StmtResult {
@@ -173,21 +193,109 @@ fn var_decl(input: &[u8]) -> StmtResult {
                 preceded(tag("var"), preceded(skip_all, identifier)),
                 skip!(opt(preceded(tag("="), expression)))),
             tag(";")),
-        |(a,b)| Box::new(Stmt::Var(Box::new(a),if let Some(e) = b { e } else { Box::new(Expr::Literal(Object::Nil)) }))
+        |(a,b)| Stmt::Var(a,if let Some(e) = b { e } else { Expr::Literal(Object::Nil) })
+    )(input)
+}
+
+fn block_stmt(input: &[u8]) -> StmtResult {
+    map(
+        delimited(tag("{"), many0(declaration), cut(tag("}"))),
+        |v| Stmt::Block(v)
+    )(input)
+}
+
+fn if_stmt(input: &[u8]) -> StmtResult {
+    map(
+        tuple((
+            preceded(
+                preceded(tag("if"), skip_all),
+                cut(delimited(tag("("), expression, tag(")"))),
+            ),
+            cut(delimited(skip_all, statement, skip_all)),
+            opt(preceded(tag("else"), cut(preceded(skip_all, statement))))
+        )),
+        |(cond, then_branch, else_branch)|
+            Stmt::If(cond, Box::new(then_branch), else_branch.map(Box::new))
+    )(input)
+}
+
+fn while_stmt(input: &[u8]) -> StmtResult {
+    map(
+        preceded(
+            preceded(tag("while"), skip_all),
+            pair(
+                cut(delimited(tag("("), expression, tag(")"))),
+                preceded(skip_all, statement)
+            )
+        ),
+        |(expr, stmt)| Stmt::While(expr, Box::new(stmt))
+    )(input)
+}
+
+fn for_stmt(input: &[u8]) -> StmtResult {
+    map(preceded(
+        pair(tag("for"), skip_all),
+        cut(tuple((
+            preceded(
+                pair(tag("("), skip_all), 
+                alt((
+                    map(var_decl, Some),
+                    map(tag(";"), |_| None),
+                    map(expr_stmt, Some),
+                ))
+            ),
+            delimited(skip_all, opt(expression), tag(";")),
+            delimited(skip_all, opt(expression), tag(")")),
+            preceded(skip_all, statement)
+        )))),
+        |(stmt1, expr1, expr2, stmt2)| -> Stmt {
+            let mut while_block = vec![stmt2];
+            if let Some(expr) = expr2 {
+                while_block.push(Stmt::Expression(expr));
+            }
+            let cond = if let Some(expr1) = expr1 { expr1 } else { Expr::Literal(Object::Bool(true))};
+            let body = Stmt::While(cond,Box::new(Stmt::Block(while_block)));
+            if let Some(stmt) = stmt1 {
+                Stmt::Block(vec![stmt, body])
+            } else {
+                body
+            }
+        }
+    )(input)
+}
+
+fn return_stmt(input: &[u8]) -> StmtResult {
+    map(
+        delimited(tag("return"), opt(expression), pair(skip_all, tag(";"))),
+        |expr| Stmt::Return(if let Some(expr) = expr { expr } else {Expr::Literal(Object::Nil)})
     )(input)
 }
 
 fn statement(input: &[u8]) -> StmtResult {
-    alt((print_stmt, expr_stmt))(input)
+    alt((print_stmt, block_stmt, if_stmt, while_stmt, for_stmt, return_stmt, expr_stmt))(input)
+}
+
+fn fun_decl(input: &[u8]) -> StmtResult {
+    preceded(pair(tag("fun"), skip_all), function)(input)
+}
+
+fn function(input: &[u8]) -> StmtResult {
+    map(tuple((
+        terminated(identifier, pair(skip_all, tag("("))),
+        separated_list0(tag(","), delimited(skip_all, identifier, skip_all)),
+        preceded(delimited(skip_all, tag(")"),skip_all), delimited(tag("{"), many0(declaration), cut(tag("}"))))
+    )),
+        |(name, params, body)| Stmt::Function { name, params, body: Rc::new(body)}
+    )(input)
 }
 
 fn declaration(input: &[u8]) -> StmtResult {
     skip!(
-        alt((var_decl,statement))
+        alt((var_decl, fun_decl, statement))
     )(input)
 }
 
-pub fn program(input: &[u8]) -> IResult<&[u8], Vec<Box<Stmt>>> {
+pub fn program(input: &[u8]) -> IResult<&[u8], Vec<Stmt>> {
     skip!(many0(declaration))(input)
 }
 
@@ -225,13 +333,12 @@ fn identifier(input: &[u8]) -> IResult<&[u8], String> {
     verify(identifier_or_keywords, |s:&String| !KEYWORDS_SET.contains(s))(input)
 }
 
-// '\n' deals in the loop
 fn skip_white_space(input: &[u8]) -> IResult<&[u8], ()> {
-    map(one_of(" \t\r\n"), |_| ())(input)
+    value((), one_of(" \t\r\n"))(input)
 }
 
 fn skip_line_comment(input: &[u8]) -> IResult<&[u8], ()> {
-    map(preceded(tag("//"), take_while(|c| c != b'\n')), |_| ())(input)
+    value((), preceded(tag("//"), take_while(|c| c != b'\n')))(input)
 }
 fn block_comment(input: &[u8]) -> IResult<&[u8], ()> {
     let (next_input, (_, s)) = many_till(take(1usize), alt((tag("*/"), tag("/*"))))(input)?;

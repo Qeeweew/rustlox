@@ -1,99 +1,123 @@
-use crate::token::{Token, TokenType};
+use core::fmt::Display;
 
-pub trait Visitor<T> {
-    fn visit_expr(&mut self, e: &Expr) -> T;
+use alloc::rc::Rc;
+
+use super::object::*;
+
+pub trait Visitor<T1, T2> {
+    fn visit_expr(&mut self, e: &Expr) -> T1;
+    fn visit_stmt(&mut self, e: &Stmt) -> T2;
 }
 
-#[derive(Debug)]
 pub enum Expr {
     Literal(Object),
     Unary(UnaryOp, Box<Expr>), // (op, expr)
     Binary(BinaryOp, Box<Expr>, Box<Expr>), // (op, left, right)
-    // Grouping(Box<Expr>),
+    Varible(String),
+    Assign(String, Box<Expr>), 
+    Call(Box<Expr>, Vec<Expr>), // (callee, arguments)
 }
-#[derive(Debug, Clone, PartialEq)]
-pub enum Object {
-    Number(f64),
-    String(String),
-    Bool(bool),
-    Nil,
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::Literal(o) => write!(f, "{}", o),
+            Expr::Unary(op, e) => write!(f, "({:?} {})", op, e),
+            Expr::Binary(op, l, r) => write!(f, "({} {:?} {})", l, op, r),
+            Expr::Varible(v) => write!(f, "{}", v),
+            Expr::Assign(v, e) => write!(f, "{} = {}", v, e),
+            Expr::Call(func, a) => {
+                write!(f, "{}(", func)?;
+                for (i, e) in a.iter().enumerate() {
+                    if i == a.len() - 1 {
+                        write!(f, "{})", e)?
+                    } else {
+                        write!(f, "{}, ", e)?
+                    }
+                }
+                write!(f, ")")
+            }
+        }
+    }
 }
-#[derive(Debug)]
+
+pub enum Stmt {
+    Expression(Expr),
+    Print(Expr),
+    If(Expr, Box<Stmt>, Option<Box<Stmt>>),
+    While(Expr, Box<Stmt>),
+    Var(String, Expr),
+    Block(Vec<Stmt>),
+    Function{
+        name: String,
+        params: Vec<String>,
+        body: Rc<Vec<Stmt>>,
+    },
+    Return(Expr),
+}
+
+impl Display for Stmt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Stmt::Expression(e) => { write!(f, "{};", e)}
+            Stmt::Print(e) => { write!(f, "print {};", e)},
+            Stmt::If(cond, e1, e2) => {
+                if let Some(e2) = e2   {
+                    write!(f, "if ({})\n{}\n else \n {}", cond, e1, e2)
+                } else {
+                    write!(f, "if ({})\n{}", cond, e1)
+                }
+            },
+            Stmt::While(cond, stmt) => write!(f, "while ({})\n{}", cond, stmt),
+            Stmt::Var(s, expr) => write!(f, "var {} = {};", s, expr),
+            Stmt::Block(v) => {
+                write!(f, "{{")?;
+                for stmt in v {
+                    write!(f, "\n{}", stmt)?;
+                }
+                write!(f,"\n}}")
+            }
+            Stmt::Function { name, params: _, body: _} => write!(f, "function {}\n", name),
+            Stmt::Return(_) => todo!(),
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     Not,
     Neg,
 }
-impl UnaryOp {
-    pub fn from_token(t: &Token) -> Self {
-        if t.token_type == TokenType::Bang {
-            Self::Not
-        } else if t.token_type == TokenType::Minus {
-            Self::Neg
-        } else {
-            panic!()
-        }
-    }
 
-}
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BinaryOp {
-    EQ, NEQ, LT, LE, GT, GE, ADD, SUB, MUL, DIV
+    EQ, NEQ, LT, LE, GT, GE, ADD, SUB, MUL, DIV, 
+    OR, AND // short-circuit
 }
 
-impl BinaryOp {
-    pub fn from_token(t: &Token) -> Self {
-        match t.token_type {
-            TokenType::Minus => Self::SUB,
-            TokenType::Plus => Self::ADD,
-            TokenType::Slash => Self::DIV,
-            TokenType::Star => Self::MUL,
-            TokenType::BangEqual => Self::NEQ,
-            TokenType::EqualEqual => Self::EQ,
-            TokenType::Greater => Self::GT, 
-            TokenType::GreaterEqual => Self::GE,
-            TokenType::Less => Self::LT,
-            TokenType::LessEqual => Self::LE,
-            _ => panic!("impossible")
-        }
-    }
-}
-
-struct PrintExpr {}
-impl Visitor<String> for PrintExpr {
-    fn visit_expr(&mut self, e: &Expr) -> String {
-        match e {
-            Expr::Literal(n) => match n {
-                Object::Number(x) => x.to_string(),
-                Object::String(s) => s.clone(),
-                Object::Bool(b) => b.to_string(),
-                Object::Nil => "nil".into(),
-            },
-            Expr::Unary(op, expr) => {
-                format!("({:?} {})", op, self.visit_expr(expr))
-            },
-            Expr::Binary(op, left, right) => {
-                format!("({} {:?} {})", self.visit_expr(left), op, self.visit_expr(right))
-            },
-        }
-    }
-}
+// struct PrintExpr {}
+// impl Visitor<String> for PrintExpr {
+//     fn visit_expr(&mut self, e: &Expr) -> String {
+//         match e {
+//             Expr::Literal(n) => match n {
+//                 Object::Number(x) => x.to_string(),
+//                 Object::String(s) => s.clone(),
+//                 Object::Bool(b) => b.to_string(),
+//                 Object::Nil => "nil".into(),
+//             },
+//             Expr::Unary(op, expr) => {
+//                 format!("({:?} {})", op, self.visit_expr(expr))
+//             },
+//             Expr::Binary(op, left, right) => {
+//                 format!("({} {:?} {})", self.visit_expr(left), op, self.visit_expr(right))
+//             },
+//         }
+//     }
+// }
 
 mod test {
     use super::*;
 
-    #[test]
-    fn test_expr_print() {
-        let expr = Expr::Binary(BinaryOp::MUL, 
-            Box::new(
-                Expr::Unary(UnaryOp::Neg, 
-                    Box::new(Expr::Literal(Object::Number(123.0))))
-            ), 
-            Box::new(
-                Expr::Literal(Object::Number(45.67)
-            )
-        ));
-        let mut printer = PrintExpr{};
-        println!("{}", printer.visit_expr(&expr));
-    }
 
 }
