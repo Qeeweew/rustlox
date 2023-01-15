@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::process::id;
 
 use super::ast::*;
 use super::interpreter::*;

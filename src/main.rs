@@ -8,7 +8,6 @@ mod resolver;
 mod ast;
 use std::{io::{self, Read}};
 use interpreter::Interpreter;
-use parser2::convert_u8_string;
 fn run(s: String) {
     let res = parser2::program(s.as_bytes());
     let mut interpreter = Interpreter::new();

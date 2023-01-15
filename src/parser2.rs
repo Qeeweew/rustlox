@@ -1,13 +1,12 @@
-use core::{str::{self}, cell::RefCell};
+use core::{str::{self}};
 use std::{collections::{HashSet}};
 
 use super::ast::*;
 use super::object::*;
 
-use alloc::rc::Rc;
 use nom::{
     IResult, 
-    combinator::{map, recognize, verify, opt, map_res, cut, value, rest}, 
+    combinator::{map, recognize, verify, opt, cut, value}, 
     character::{
         complete::{one_of, digit1, }, 
         is_alphanumeric, is_alphabetic
@@ -15,8 +14,8 @@ use nom::{
     branch::alt, 
     bytes::{complete::{take, take_while, take_while_m_n, take_while1, tag}}, 
     sequence::{delimited, preceded, pair, terminated, tuple}, 
-    multi::{many0, many_till, separated_list1, separated_list0}, 
-    AsBytes, error::{context, ErrorKind, VerboseError, FromExternalError}, error_position, InputIter
+    multi::{many0, many_till, separated_list0}, 
+    AsBytes, error::{ErrorKind}
 };
 
 macro_rules! skip {

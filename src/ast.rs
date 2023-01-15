@@ -1,6 +1,4 @@
-use core::{fmt::{Display, write}, cell::RefCell};
-
-use alloc::rc::Rc;
+use core::{fmt::{Display}, };
 
 use super::object::*;
 
@@ -120,10 +118,4 @@ pub enum UnaryOp {
 pub enum BinaryOp {
     EQ, NEQ, LT, LE, GT, GE, ADD, SUB, MUL, DIV, 
     OR, AND // short-circuit
-}
-
-mod test {
-    use super::*;
-
-
 }
