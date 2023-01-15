@@ -6,11 +6,28 @@ mod object;
 mod interpreter;
 mod resolver;
 mod ast;
-use std::{io::{self, Read}};
-use interpreter::Interpreter;
+use core::time::Duration;
+use std::{io::{self, Read}, time::{SystemTime, UNIX_EPOCH}};
+use interpreter::{Interpreter, InterpreterError};
+use object::Object;
+
+fn clock_(_: &Vec<Object>) -> Result<Object, InterpreterError>{
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    Ok(Object::Number((Duration::as_millis(&since_the_epoch) as f64) / 1000.0))
+}
+
 fn run(s: String) {
     let res = parser2::program(s.as_bytes());
-    let mut interpreter = Interpreter::new();
+    let clock = RustFunction {
+        name: "clock".to_owned(),
+        func: clock_,
+        arity: 0,
+    };
+    let vec = vec![clock];
+    let mut interpreter = Interpreter::new(vec);
     match res {
         Ok((reamin, ast)) => {
             for stmt in &ast {
@@ -48,6 +65,10 @@ fn run_file(path: &str) -> io::Result<()> {
     run(buf);
     Ok(())
 }
+
+use object::RustFunction;
+
+
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 2 {

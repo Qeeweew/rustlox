@@ -2,7 +2,7 @@ use core::{fmt::{Display}, cell::{RefCell, Ref},mem};
 use std::collections::HashMap;
 use alloc::rc::Rc;
 
-use crate::ast::{Identifier, Function};
+use crate::ast::{Identifier, FunctionBody};
 
 use super::interpreter::*;
 use InterpreterError::*;
@@ -12,14 +12,15 @@ pub trait LoxCallable: Display {
     fn arity(&self) -> usize;
 }
 
+#[derive (Clone)]
 pub struct RustFunction {
-    name: String,
-    func: fn(&Vec<Object>) -> Result<Object, InterpreterError>,
-    arity: usize,
+    pub name: String,
+    pub func: fn(&Vec<Object>) -> Result<Object, InterpreterError>,
+    pub arity: usize,
 }
 
 pub struct LoxFunction {
-    func: Rc<Function>,
+    func: Rc<FunctionBody>,
     closure: Rc<RefCell<Environment>>,
     is_initializer: bool,
 }
@@ -44,7 +45,7 @@ pub enum Object {
 }
 
 impl LoxFunction {
-    pub fn new(func: Function, closure: Rc<RefCell<Environment>>, is_initializer: bool) -> Self {
+    pub fn new(func: FunctionBody, closure: Rc<RefCell<Environment>>, is_initializer: bool) -> Self {
         LoxFunction { func: Rc::new(func), closure, is_initializer}
     }
     pub fn bind(&self, instance: Rc<RefCell<LoxInstance>>) -> Self {
@@ -149,7 +150,7 @@ impl Display for Object {
 
 impl LoxInstance {
     pub fn get(instance: Rc<RefCell<LoxInstance>>, name: &String) -> Result<Object, InterpreterError> {
-        let ref_instance: Ref<LoxInstance> = instance.borrow();
+        let ref_instance = instance.borrow();
         if let Some(o) = ref_instance.fields.get(name) {
             return Ok(o.clone());
         }

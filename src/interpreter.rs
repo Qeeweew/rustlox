@@ -19,6 +19,13 @@ pub struct Environment {
 }
 
 impl Environment {
+    pub fn new_global(builtin_functions: &Vec<RustFunction>) -> Self {
+        let mut values = vec![];
+        for f in builtin_functions {
+            values.push(Object::Function(Rc::new(f.clone())));
+        }
+        Environment { values, parent: None }
+    }
     pub fn new(parent: Option<Rc<RefCell<Environment>>>) -> Self {
         Self { values: Vec::new(), parent}
     }
@@ -70,6 +77,7 @@ pub struct Interpreter {
     env: Rc<RefCell<Environment>>,
     globals: Rc<RefCell<Environment>>,
     pub return_object: Option<Object>,
+    builtin_functions: Vec<RustFunction>,
 }
 
 impl Interpreter {
@@ -234,17 +242,21 @@ impl Interpreter {
             }
         }
     }
-    pub fn new() -> Self {
-        let env = Rc::new(RefCell::new(Environment::new(None)));
+    pub fn new(builtin_functions: Vec<RustFunction>) -> Self {
+        let env = Rc::new(RefCell::new(Environment::new_global(&builtin_functions)));
         let globals = env.clone();
         Interpreter { 
             env,
             globals,
             return_object: None,
+            builtin_functions,
         }
     }
     pub fn interpret(&mut self, mut statements: Vec<Stmt>) -> Result<(), InterpreterError> {
         let mut resolver = Resolver::new();
+        for (i, f) in self.builtin_functions.iter().enumerate() {
+            resolver.set_builtin(i, f.name.clone())
+        }
         resolver.resolve(&mut statements)?;
         for statement in statements {
             self.visit_stmt(&statement)?;

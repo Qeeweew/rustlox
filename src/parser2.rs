@@ -283,14 +283,14 @@ fn fun_decl(input: &[u8]) -> StmtResult {
     map(preceded(pair(tag("fun"), skip_all), function), Stmt::Func)(input)
 }
 
-fn function(input: &[u8]) -> IResult<&[u8], Function>{
+fn function(input: &[u8]) -> IResult<&[u8], FunctionBody>{
     map(tuple((
         terminated(identifier, pair(skip_all, tag("("))),
         separated_list0(tag(","), delimited(skip_all, identifier, skip_all)),
         preceded(delimited(skip_all, tag(")"),skip_all), delimited(tag("{"), many0(declaration), cut(tag("}"))))
     )),
         |(ident, params, body)| 
-        Function { ident, params, body}
+        FunctionBody { ident, params, body}
     )(input)
 }
 

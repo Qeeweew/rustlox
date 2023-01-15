@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-
 use super::ast::*;
 use super::interpreter::*;
 use super::interpreter::InterpreterError::*;
@@ -27,6 +26,9 @@ pub const INF: usize = usize::MAX;
 impl Resolver {
     pub fn new() -> Self {
         Self { scopes: vec![HashMap::new()], current_function: FunctionType::None, current_class: ClassType::None }
+    }
+    pub fn set_builtin(&mut self, i: usize, f_name: String) {
+        self.scopes[0].insert(f_name, i);
     }
     pub fn resolve(&mut self, statements: &mut Vec<Stmt>) -> ResolveResult {
         for stmt in statements {
@@ -105,7 +107,7 @@ impl Resolver {
         }
         Err(ResolverError(format!("Can't find '{}' at current scope", ident.name)))
     }
-    fn resolve_function(&mut self, func: &mut Function, function_type: FunctionType) -> ResolveResult {
+    fn resolve_function(&mut self, func: &mut FunctionBody, function_type: FunctionType) -> ResolveResult {
         let enclosing_function = self.current_function;
         self.current_function = function_type;
         self.begin_scope();

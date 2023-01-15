@@ -54,7 +54,7 @@ impl Display for Expr {
 }
 
 #[derive(Clone)]
-pub struct Function {
+pub struct FunctionBody {
     pub ident: Identifier,
     pub params: Vec<Identifier>,
     pub body: Vec<Stmt>,
@@ -68,9 +68,9 @@ pub enum Stmt {
     While(Expr, Box<Stmt>),
     Var(Identifier, Option<Expr>),
     Block(Vec<Stmt>),
-    Func(Function),
+    Func(FunctionBody),
     Return(Expr),
-    Class(Identifier, Vec<Function>),
+    Class(Identifier, Vec<FunctionBody>),
 }
 
 impl Display for Stmt {
