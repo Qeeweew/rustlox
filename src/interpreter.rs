@@ -1,5 +1,5 @@
-use core::mem;
 use core::{cell::RefCell, fmt::Debug};
+use std::collections::HashMap;
 use alloc::rc::Rc;
 
 use super::ast::*;
@@ -22,7 +22,10 @@ impl Environment {
     pub fn new(parent: Option<Rc<RefCell<Environment>>>) -> Self {
         Self { values: Vec::new(), parent}
     }
-    pub fn define(&mut self, ident: &Identifier, o :Object) {
+    pub fn define_this(&mut self, instace: Rc<RefCell<LoxInstance>>) {
+        self.values.push(Object::Instance(instace))
+    }
+    pub fn define(&mut self, ident: &Identifier, o: Object) {
         assert!(ident.id != INF);
         assert!(ident.env_depth == 0);
         while self.values.len() <= ident.id {
@@ -30,18 +33,23 @@ impl Environment {
         }
         self.values[ident.id] = o;
     }
+    pub fn assign(&mut self, ident: &Identifier, o: Object) {
+        self.set(ident.env_depth, ident.id, o);
+    }
 
-    pub fn get(&self, dep: usize, i: usize) -> Object {
+    pub fn get_(&self, dep: usize, i: usize) -> Object {
         if dep == 0 {
             self.values[i].clone()
         } else {
             if let Some(parent) = &self.parent {
-                parent.clone().borrow_mut().get(dep - 1, i)
+                parent.clone().borrow_mut().get_(dep - 1, i)
             } else {
                 panic!("???")
             }
-
         }
+    }
+    pub fn get(&self, ident: &Identifier) -> Object {
+        self.get_(ident.env_depth, ident.id)
     }
 
     pub fn set(&mut self, dep: usize, i: usize, o :Object) {
@@ -61,11 +69,11 @@ impl Environment {
 pub struct Interpreter {
     env: Rc<RefCell<Environment>>,
     globals: Rc<RefCell<Environment>>,
-    return_object: Option<Object>,
+    pub return_object: Option<Object>,
 }
 
-impl Visitor<Result<Object, InterpreterError>, Result<(), InterpreterError>> for Interpreter {
-    fn visit_expr(&mut self, e: &Expr) -> Result<Object, InterpreterError>{
+impl Interpreter {
+    fn visit_expr(&mut self, e: &Expr) -> Result<Object, InterpreterError> {
         use Object::*;
         match e {
             Expr::Literal(o) => { Ok(o.clone()) },
@@ -124,7 +132,7 @@ impl Visitor<Result<Object, InterpreterError>, Result<(), InterpreterError>> for
                 }
             }
             Expr::Varible(v) => {
-                Ok(self.env.borrow_mut().get(v.env_depth, v.id))
+                Ok(self.env.borrow().get(v))
             }
             Expr::Assign(s, e) => {
                 let val = self.visit_expr(e)?;
@@ -141,13 +149,22 @@ impl Visitor<Result<Object, InterpreterError>, Result<(), InterpreterError>> for
                 if f.arity() != args.len() {
                     return Err(RuntimeError(format!("wrong number of arguments")));
                 }
-                f.call(self, &args)?;
-                if let Some(o) = mem::replace(&mut self.return_object, None) {
-                    Ok(o)
-                } else {
-                    Ok(Object::Nil)
-                }
+                f.call(self, &args)
             }
+            Expr::Get(expr, name) => {
+                let object = self.visit_expr(expr)?;
+                let instance = object.to_instance()?;
+                LoxInstance::get(instance, name)
+            }
+            Expr::Set(expr, name, value) => {
+                let object = self.visit_expr(expr)?;
+                let instance = object.to_instance()?;
+                let value = self.visit_expr(value)?;
+                let mut ref_instance = instance.borrow_mut();
+                ref_instance.set(&name, value.clone());
+                Ok(value)
+            }
+            Expr::This(v) => Ok(self.env.borrow().get(v)),
         }
     }
 
@@ -167,9 +184,8 @@ impl Visitor<Result<Object, InterpreterError>, Result<(), InterpreterError>> for
                 self.env.borrow_mut().define(&name, val);
                 Ok(())
             }
-            Stmt::Block(v) => {
-                self.execute_block(v, Environment::new(Some(self.env.clone())))
-            }
+            Stmt::Block(v) => self.execute_block(v, Rc::new(RefCell::new(Environment::new(Some(self.env.clone()))))),
+            
             Stmt::If(cond, then_branch, else_branch) => {
                 let cond = self.visit_expr(&cond)?;
                 if cond.is_truthy() {
@@ -193,21 +209,31 @@ impl Visitor<Result<Object, InterpreterError>, Result<(), InterpreterError>> for
                 }
                 Ok(())
             }
-            Stmt::Function { name, params, body } => {
-                self.env.borrow_mut().define(name, Object::Function(
-                    Rc::new(LoxFunction::new(name.clone(), params.clone(), body.clone(), self.env.clone())) // clone once
+            Stmt::Func(f) => {
+                self.env.borrow_mut().define(&f.ident, Object::Function(
+                    Rc::new(LoxFunction::new(f.clone(), self.env.clone(), false)) // clone once
                 ));
                 Ok(())
             }
             Stmt::Return(expr) => {
                 self.return_object = Some(self.visit_expr(expr)?);
-                return Ok(());
+                Ok(())
+            }
+            Stmt::Class(ident, body) => {
+                self.env.borrow_mut().define(&ident, Object::Nil);
+                let methods = HashMap::from_iter(
+                    body.iter().map(|f| 
+                        (f.ident.name.as_ref().clone(), Rc::new(LoxFunction::new(f.clone(), self.env.clone(), f.ident.name.as_ref() == "init")))
+                    )
+                );
+                let lox_class = LoxClass::new(ident.clone(), methods);
+                self.env.borrow_mut().assign(&ident, Object::Function(
+                    Rc::new(Rc::new(lox_class))
+                ));
+                Ok(())
             }
         }
     }
-}
-
-impl Interpreter {
     pub fn new() -> Self {
         let env = Rc::new(RefCell::new(Environment::new(None)));
         let globals = env.clone();
@@ -226,9 +252,9 @@ impl Interpreter {
         Ok(())
     }
 
-    pub fn execute_block(&mut self, v: &Vec<Stmt>, env: Environment) -> Result<(), InterpreterError> {
+    pub fn execute_block(&mut self, v: &Vec<Stmt>, env: Rc<RefCell<Environment>>) -> Result<(), InterpreterError> {
         let previous = self.env.clone();
-        self.env = Rc::new(RefCell::new(env));
+        self.env = env;
         for stmt in v {
             self.visit_stmt(stmt)?;
             if self.return_object.is_some() {

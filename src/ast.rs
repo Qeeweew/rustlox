@@ -1,11 +1,8 @@
-use core::{fmt::Display};
+use core::{fmt::{Display, write}, cell::RefCell};
+
+use alloc::rc::Rc;
 
 use super::object::*;
-
-pub trait Visitor<T1, T2> {
-    fn visit_expr(&mut self, e: &Expr) -> T1;
-    fn visit_stmt(&mut self, e: &Stmt) -> T2;
-}
 
 #[derive(Clone, Debug)]
 pub struct Identifier {
@@ -27,6 +24,9 @@ pub enum Expr {
     Varible(Identifier),
     Assign(Identifier, Box<Expr>), 
     Call(Box<Expr>, Vec<Expr>), // (callee, arguments)
+    Get(Box<Expr>, String), // (object, property)
+    Set(Box<Expr>, String, Box<Expr>),
+    This(Identifier),
 }
 
 impl Display for Expr {
@@ -48,8 +48,18 @@ impl Display for Expr {
                 }
                 write!(f, ")")
             }
+            Expr::Get(e, s) => write!(f, "{}.{}", e, s),
+            Expr::Set(o, s, v) => write!(f,"{}.{} = {}", o, s, v),
+            Expr::This(_) => write!(f,"this"),
         }
     }
+}
+
+#[derive(Clone)]
+pub struct Function {
+    pub ident: Identifier,
+    pub params: Vec<Identifier>,
+    pub body: Vec<Stmt>,
 }
 
 #[derive(Clone)]
@@ -60,12 +70,9 @@ pub enum Stmt {
     While(Expr, Box<Stmt>),
     Var(Identifier, Option<Expr>),
     Block(Vec<Stmt>),
-    Function{
-        name: Identifier,
-        params: Vec<Identifier>,
-        body: Vec<Stmt>,
-    },
+    Func(Function),
     Return(Expr),
+    Class(Identifier, Vec<Function>),
 }
 
 impl Display for Stmt {
@@ -95,8 +102,9 @@ impl Display for Stmt {
                 }
                 write!(f,"\n}}")
             }
-            Stmt::Function { name, params: _, body: _} => write!(f, "function {}\n", name.name),
+            Stmt::Func(func) => write!(f, "function {}\n", func.ident.name),
             Stmt::Return(_) => write!(f, "return statement"),
+            Stmt::Class(ident,_) => write!(f, "class {}\n", ident.name),
         }
     }
 }
@@ -113,26 +121,6 @@ pub enum BinaryOp {
     EQ, NEQ, LT, LE, GT, GE, ADD, SUB, MUL, DIV, 
     OR, AND // short-circuit
 }
-
-// struct PrintExpr {}
-// impl Visitor<String> for PrintExpr {
-//     fn visit_expr(&mut self, e: &Expr) -> String {
-//         match e {
-//             Expr::Literal(n) => match n {
-//                 Object::Number(x) => x.to_string(),
-//                 Object::String(s) => s.clone(),
-//                 Object::Bool(b) => b.to_string(),
-//                 Object::Nil => "nil".into(),
-//             },
-//             Expr::Unary(op, expr) => {
-//                 format!("({:?} {})", op, self.visit_expr(expr))
-//             },
-//             Expr::Binary(op, left, right) => {
-//                 format!("({} {:?} {})", self.visit_expr(left), op, self.visit_expr(right))
-//             },
-//         }
-//     }
-// }
 
 mod test {
     use super::*;

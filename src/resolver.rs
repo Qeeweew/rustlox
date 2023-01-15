@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::process::id;
 
 use super::ast::*;
 use super::interpreter::*;
@@ -8,17 +9,25 @@ use super::interpreter::InterpreterError::*;
 enum FunctionType {
     None,
     Function,
+    Method,
+}
+
+#[derive(Clone, Copy)]
+enum ClassType {
+    None,
+    Class,
 }
 pub struct Resolver {
     scopes: Vec<HashMap<String, usize>>,
     current_function: FunctionType, // resolve return
+    current_class: ClassType,
 }
 type ResolveResult = Result<(), InterpreterError>;
 pub const INF: usize = usize::MAX;
 
 impl Resolver {
     pub fn new() -> Self {
-        Self { scopes: vec![HashMap::new()], current_function: FunctionType::None }
+        Self { scopes: vec![HashMap::new()], current_function: FunctionType::None, current_class: ClassType::None }
     }
     pub fn resolve(&mut self, statements: &mut Vec<Stmt>) -> ResolveResult {
         for stmt in statements {
@@ -42,9 +51,9 @@ impl Resolver {
     }
     fn define(&mut self, ident: &mut Identifier) {
         let scope = self.scopes.last_mut().unwrap();
-        ident.id = scope.len();
+        ident.id = scope.len() - 1;
         ident.env_depth = 0;
-        scope.insert(*ident.name.clone(), scope.len());
+        scope.insert(*ident.name.clone(), ident.id);
     }
 
     fn resolve_expr(&mut self, e: &mut Expr) -> ResolveResult {
@@ -72,6 +81,17 @@ impl Resolver {
                 }
                 Ok(())
             }
+            Expr::Get(e, _) => self.resolve_expr(e),
+            Expr::Set(object, _, value) => {
+                self.resolve_expr(value)?;
+                self.resolve_expr(object)
+            },
+            Expr::This(ident) => {
+                if matches!(self.current_class, ClassType::None) {
+                    return Err(ResolverError(format!("Can't use 'this' outside of a class.")));
+                }
+                self.resolve_local(ident)
+            }
         }
     }
 
@@ -81,20 +101,20 @@ impl Resolver {
             if let Some(index) = scope.get(ident.name.as_ref()) {
                 ident.env_depth = depth;
                 ident.id = *index;
-                break;
+                return Ok(());
             }
         }
-        Ok(())
+        Err(ResolverError(format!("Can't find '{}' at current scope", ident.name)))
     }
-    fn resolve_function(&mut self, params: &mut Vec<Identifier>, body: &mut Vec<Stmt>, function: FunctionType) -> ResolveResult {
+    fn resolve_function(&mut self, func: &mut Function, function_type: FunctionType) -> ResolveResult {
         let enclosing_function = self.current_function;
-        self.current_function = function;
+        self.current_function = function_type;
         self.begin_scope();
-        for param in params {
+        for param in &mut func.params {
             self.declare(param)?;
             self.define(param);
         }
-        self.resolve(body)?;
+        self.resolve(&mut func.body)?;
         self.end_scope();
         self.current_function = enclosing_function;
         Ok(())
@@ -127,10 +147,10 @@ impl Resolver {
                 self.end_scope();
                 Ok(())
             }
-            Stmt::Function { name, params, body } => {
-                self.declare(name)?;
-                self.define(name);
-                self.resolve_function(params, body, FunctionType::Function)?;
+            Stmt::Func(f) => {
+                self.declare(&f.ident)?;
+                self.define(&mut f.ident);
+                self.resolve_function(f, FunctionType::Function)?;
                 Ok(())
             }
             Stmt::Return(e) => {
@@ -139,6 +159,20 @@ impl Resolver {
                 } else {
                     self.resolve_expr(e)
                 }
+            }
+            Stmt::Class(name, body) => {
+                let previous_class = self.current_class;
+                self.current_class = ClassType::Class;
+                self.declare(name)?;
+                self.define(name);
+                self.begin_scope();
+                self.scopes.last_mut().unwrap().insert("this".to_owned(), 0);
+                for method in body {
+                    self.resolve_function(method, FunctionType::Method)?;
+                }
+                self.end_scope();
+                self.current_class = previous_class;
+                Ok(())
             }
         }
 

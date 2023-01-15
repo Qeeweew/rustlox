@@ -7,7 +7,7 @@ use super::object::*;
 use alloc::rc::Rc;
 use nom::{
     IResult, 
-    combinator::{map, recognize, verify, opt, map_res, cut, value}, 
+    combinator::{map, recognize, verify, opt, map_res, cut, value, rest}, 
     character::{
         complete::{one_of, digit1, }, 
         is_alphanumeric, is_alphabetic
@@ -16,7 +16,7 @@ use nom::{
     bytes::{complete::{take, take_while, take_while_m_n, take_while1, tag}}, 
     sequence::{delimited, preceded, pair, terminated, tuple}, 
     multi::{many0, many_till, separated_list1, separated_list0}, 
-    AsBytes, error::{context, ErrorKind, VerboseError, FromExternalError}, error_position
+    AsBytes, error::{context, ErrorKind, VerboseError, FromExternalError}, error_position, InputIter
 };
 
 macro_rules! skip {
@@ -80,6 +80,8 @@ fn primary(input: &[u8]) -> ExprResult {
                 Expr::Literal(Bool(false))
             } else if s == "nil" {
                 Expr::Literal(Nil)
+            } else if s == "this"{
+                Expr::This(Identifier::new(s))
             } else {
                 Expr::Varible(Identifier::new(s))
             }
@@ -107,12 +109,12 @@ macro_rules! chainl {
 
 pub fn expression(input: &[u8]) -> ExprResult { skip!(assinment)(input) }
 pub fn assinment(input: &[u8]) -> ExprResult {
-    let (next_input, (expr, eq)) = pair(logic_or, opt(preceded(tag("="), cut(assinment))))(input)?;
-    if let Some(e) = eq {
-        if let Expr::Varible(s) = expr {
-            Ok((next_input, Expr::Assign(s, Box::new(e))))
-        } else {
-            Err(nom::Err::Failure(nom::error::Error{input: next_input, code: ErrorKind::Satisfy}))
+    let (next_input, (expr, eq)) = pair(terminated(logic_or, skip_all), opt(preceded(pair(tag("="), skip_all), assinment)))(input)?;
+    if let Some(value) = eq {
+        match expr {
+            Expr::Varible(s) => Ok((next_input, Expr::Assign(s, Box::new(value)))),
+            Expr::Get(e, s) => Ok((next_input, Expr::Set(e, s, Box::new(value)))),
+            _ => Err(nom::Err::Failure(nom::error::Error{input: next_input, code: ErrorKind::Satisfy}))
         }
     } else {
         Ok((next_input, expr))
@@ -134,17 +136,20 @@ fn unary(input: &[u8]) -> ExprResult {
 }
 
 fn call(input: &[u8]) -> ExprResult {
-    map(
-        pair(primary, many0(delimited(delimited(skip_all, tag("("), skip_all), separated_list0(tag(","), expression), cut(tag(")"))))),
-        |(mut expr, arguments_list)| -> Expr {
-            for arguments in arguments_list {
-                expr = Expr::Call(Box::new(expr), arguments)
-            }
-            expr
+    let (mut next_input, mut expr) = terminated(primary, skip_all)(input)?;
+    while let (tmp, Some(char)) = opt(terminated(alt((tag("("), tag("."))), skip_all))(next_input)? {
+        if char == b"(" {
+            let (tmp, arguments) = cut(terminated(separated_list0(tag(","), expression), pair(skip_all, tag(")"))))(tmp)?;
+            expr = Expr::Call(Box::new(expr), arguments);
+            (next_input, _) = skip_all(tmp)?;
+        } else {
+            let (tmp, ident) = cut(identifier)(tmp)?;
+            expr = Expr::Get(Box::new(expr), *ident.name);
+            (next_input, _) = skip_all(tmp)?;
         }
-    )(input)
+    }
+    Ok((next_input, expr))
 }
-
 
 fn parse_number(input: &[u8]) -> IResult<&[u8], f64> {
     // [0-9]+.? [0-9]+
@@ -276,23 +281,35 @@ fn statement(input: &[u8]) -> StmtResult {
 }
 
 fn fun_decl(input: &[u8]) -> StmtResult {
-    preceded(pair(tag("fun"), skip_all), function)(input)
+    map(preceded(pair(tag("fun"), skip_all), function), Stmt::Func)(input)
 }
 
-fn function(input: &[u8]) -> StmtResult {
+fn function(input: &[u8]) -> IResult<&[u8], Function>{
     map(tuple((
         terminated(identifier, pair(skip_all, tag("("))),
         separated_list0(tag(","), delimited(skip_all, identifier, skip_all)),
         preceded(delimited(skip_all, tag(")"),skip_all), delimited(tag("{"), many0(declaration), cut(tag("}"))))
     )),
-        |(name, params, body)| 
-        Stmt::Function { name, params, body: body}
+        |(ident, params, body)| 
+        Function { ident, params, body}
+    )(input)
+}
+
+fn class_decl(input: &[u8]) -> StmtResult {
+    map(
+        terminated(pair(
+                delimited(tag("class"), skip!(identifier), tag("{")), 
+                many0(preceded(skip_all, function)), 
+            ),
+            pair(skip_all, tag("}"))
+        ), 
+        |(ident, funcs)| Stmt::Class(ident, funcs)
     )(input)
 }
 
 fn declaration(input: &[u8]) -> StmtResult {
     skip!(
-        alt((var_decl, fun_decl, statement))
+        alt((var_decl, fun_decl, class_decl, statement))
     )(input)
 }
 
