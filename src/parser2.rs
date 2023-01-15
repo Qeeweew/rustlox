@@ -1,4 +1,4 @@
-use core::{str::{self}};
+use core::{str::{self}, cell::RefCell};
 use std::{collections::{HashSet}};
 
 use super::ast::*;
@@ -81,7 +81,7 @@ fn primary(input: &[u8]) -> ExprResult {
             } else if s == "nil" {
                 Expr::Literal(Nil)
             } else {
-                Expr::Varible(s)
+                Expr::Varible(Identifier::new(s))
             }
         ),
         delimited(tag("("), expression, tag(")"))
@@ -156,7 +156,7 @@ fn parse_number(input: &[u8]) -> IResult<&[u8], f64> {
     )(input)
 }
 // ascii 
-fn convert_u8_string(s: &[u8]) -> String { str::from_utf8(s).unwrap().to_owned() }
+pub fn convert_u8_string(s: &[u8]) -> String { str::from_utf8(s).unwrap().to_owned() }
 
 fn parse_string(input: &[u8]) -> IResult<&[u8], String> {
     //"[^"]+"
@@ -193,7 +193,7 @@ fn var_decl(input: &[u8]) -> StmtResult {
                 preceded(tag("var"), preceded(skip_all, identifier)),
                 skip!(opt(preceded(tag("="), expression)))),
             tag(";")),
-        |(a,b)| Stmt::Var(a,if let Some(e) = b { e } else { Expr::Literal(Object::Nil) })
+        |(a,b)| Stmt::Var(a, b),
     )(input)
 }
 
@@ -285,7 +285,8 @@ fn function(input: &[u8]) -> StmtResult {
         separated_list0(tag(","), delimited(skip_all, identifier, skip_all)),
         preceded(delimited(skip_all, tag(")"),skip_all), delimited(tag("{"), many0(declaration), cut(tag("}"))))
     )),
-        |(name, params, body)| Stmt::Function { name, params, body: Rc::new(body)}
+        |(name, params, body)| 
+        Stmt::Function { name, params, body: body}
     )(input)
 }
 
@@ -329,8 +330,8 @@ fn identifier_or_keywords(input: &[u8]) -> IResult<&[u8], String> {
     )(input)
 }
 
-fn identifier(input: &[u8]) -> IResult<&[u8], String> {
-    verify(identifier_or_keywords, |s:&String| !KEYWORDS_SET.contains(s))(input)
+fn identifier(input: &[u8]) -> IResult<&[u8], Identifier> {
+    map(verify(identifier_or_keywords, |s:&String| !KEYWORDS_SET.contains(s)), Identifier::new)(input)
 }
 
 fn skip_white_space(input: &[u8]) -> IResult<&[u8], ()> {

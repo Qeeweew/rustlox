@@ -1,16 +1,17 @@
 use core::{fmt::{Display}, cell::RefCell};
 use alloc::rc::Rc;
 
-use crate::ast::Stmt;
+use crate::ast::{Stmt, Identifier};
 
 use super::interpreter::*;
+use InterpreterError::*;
 
 pub trait LoxCallable {
-    fn call(&self, interpreter: &mut Interpreter, arguments: &Vec<Object>) -> Result<Object, RuntimeError>;
+    fn call(&self, interpreter: &mut Interpreter, arguments: &Vec<Object>) -> Result<Object, InterpreterError>;
     fn arity(&self) -> usize;
 }
 
-type AlianFunctionType = fn(&Vec<Object>) -> Result<Object, RuntimeError>;
+type AlianFunctionType = fn(&Vec<Object>) -> Result<Object, InterpreterError>;
 
 #[derive(Clone)]
 pub struct RustFunction {
@@ -19,17 +20,16 @@ pub struct RustFunction {
     arity: usize,
 }
 
-#[derive(Clone)]
 pub struct LoxFunction {
-    name: String,
-    params: Vec<String>,
-    body: Rc<Vec<Stmt>>,
-    clourse: Rc<RefCell<Environment>>,
+    name: Identifier,
+    params: Vec<Identifier>,
+    body: Vec<Stmt>,
+    closure: Rc<RefCell<Environment>>,
 }
 
 impl LoxFunction {
-    pub fn new(name: String, params: Vec<String>, body: Rc<Vec<Stmt>>, clourse: Rc<RefCell<Environment>> ) -> Self {
-        LoxFunction { name, params, body, clourse}
+    pub fn new(name: Identifier, params: Vec<Identifier>, body: Vec<Stmt>, closure: Rc<RefCell<Environment>> ) -> Self {
+        LoxFunction { name, params, body, closure}
     }
 }
 #[derive(Clone)]
@@ -37,15 +37,15 @@ pub enum Object {
     Number(f64),
     String(Box<String>),
     Bool(bool),
-    Function(Box<LoxFunction>),
-    BuiltinFunction(Box<RustFunction>),
+    Function(Rc<LoxFunction>),
+    BuiltinFunction(Rc<RustFunction>),
     Nil,
 }
 
 impl LoxCallable for LoxFunction {
-    fn call(&self, interpreter: &mut Interpreter, arguments: &Vec<Object>) -> Result<Object, RuntimeError> {
+    fn call(&self, interpreter: &mut Interpreter, arguments: &Vec<Object>) -> Result<Object, InterpreterError> {
         let p_a = self.params.iter().zip(arguments);
-        let mut environment = Environment::new(Some(self.clourse.clone()));
+        let mut environment = Environment::new(Some(self.closure.clone()));
         for (name, value) in p_a {
             environment.define(name, value.clone());
         }
@@ -59,7 +59,7 @@ impl LoxCallable for LoxFunction {
 }
 
 impl LoxCallable for RustFunction {
-    fn call(&self, interpreter: &mut Interpreter, arguments: &Vec<Object>) -> Result<Object, RuntimeError> {
+    fn call(&self, _: &mut Interpreter, arguments: &Vec<Object>) -> Result<Object, InterpreterError> {
         (self.func)(arguments)
     }
 
@@ -68,7 +68,6 @@ impl LoxCallable for RustFunction {
     }
 }
 
-
 impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -76,8 +75,8 @@ impl Display for Object {
             Object::String(s) => write!(f, "{}", s),
             Object::Bool(b) => write!(f, "{}", b),
             Object::Nil => write!(f,"Nil"),
-            Object::Function(_) => todo!(),
-            Object::BuiltinFunction(_) => todo!(),
+            Object::Function(func) => write!(f,"closure: {}",func.name.name),
+            Object::BuiltinFunction(func) => write!(f,"builtin function: {}", func.name),
         }
     }
 }
@@ -90,11 +89,11 @@ impl Object {
             _ => true,
         }
     }
-    pub fn to_callable(&self) -> Result<Box<dyn LoxCallable>, RuntimeError> {
+    pub fn to_callable(&self) -> Result<Rc<dyn LoxCallable>, InterpreterError> {
         match self {
             Object::Function(f) => Ok(f.clone()),
             Object::BuiltinFunction(f) => Ok(f.clone()),
-            _ => Err(RuntimeError::ExprError(format!("{} not a callable object", self))) 
+            _ => Err(RuntimeError(format!("{} not a callable object", self)))
         }
     }
 }
@@ -106,6 +105,8 @@ impl PartialEq for Object {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
             (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
             (Self::Nil, Self::Nil) => true,
+            (Self::Function(f1), Self::Function(f2)) => f1.name.name == f2.name.name,
+            (Self::BuiltinFunction(f1), Self::BuiltinFunction(f2)) => f1.name == f2.name,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }

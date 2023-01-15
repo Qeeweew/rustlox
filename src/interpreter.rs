@@ -1,43 +1,58 @@
 use core::mem;
 use core::{cell::RefCell, fmt::Debug};
-use std::collections::HashMap;
-use alloc::fmt::format;
 use alloc::rc::Rc;
 
 use super::ast::*;
 use super::object::*;
+use super::resolver::*;
+
+#[derive(Debug)]
+pub enum InterpreterError {
+    RuntimeError(String),
+    ResolverError(String),
+}
+use InterpreterError::*;
 
 pub struct Environment {
-    values: HashMap<String, Object>,
+    values: Vec<Object>,
     parent: Option<Rc<RefCell<Environment>>>,
 }
 
 impl Environment {
     pub fn new(parent: Option<Rc<RefCell<Environment>>>) -> Self {
-        Self { values: HashMap::new(), parent}
+        Self { values: Vec::new(), parent}
     }
-    pub fn define(&mut self, name: &String, o :Object) {
-        self.values.insert(name.clone(), o);
+    pub fn define(&mut self, ident: &Identifier, o :Object) {
+        assert!(ident.id != INF);
+        assert!(ident.env_depth == 0);
+        while self.values.len() <= ident.id {
+            self.values.push(Object::Nil);
+        }
+        self.values[ident.id] = o;
     }
 
-    pub fn get(&self, name: &String) -> Result<Object, RuntimeError> {
-        if let Some(x) = self.values.get(name) {
-            Ok(x.clone())
-        } else if let Some(pa) = &self.parent {
-            pa.borrow().get(name)
+    pub fn get(&self, dep: usize, i: usize) -> Object {
+        if dep == 0 {
+            self.values[i].clone()
         } else {
-            Err(RuntimeError::ExprError(format!("can not find { } in the environment", name)))
+            if let Some(parent) = &self.parent {
+                parent.clone().borrow_mut().get(dep - 1, i)
+            } else {
+                panic!("???")
+            }
+
         }
     }
 
-    pub fn assign(&mut self, name: &String, o :Object) -> Result<(), RuntimeError>{
-        if let Some(x) = self.values.get_mut(name) {
-            *x = o;
-            Ok(())
-        } else if let Some(pa) = &self.parent {
-            pa.borrow_mut().assign(name, o)
+    pub fn set(&mut self, dep: usize, i: usize, o :Object) {
+        if dep == 0 {
+            self.values[i] = o;
         } else {
-            Err(RuntimeError::ExprError("Undefined variable".into()))
+            if let Some(parent) = &self.parent {
+                parent.borrow_mut().set(dep - 1, i, o)
+            } else {
+                panic!("???")
+            }
         }
     }
 }
@@ -49,14 +64,8 @@ pub struct Interpreter {
     return_object: Option<Object>,
 }
 
-#[derive(Debug)]
-pub enum RuntimeError {
-    ExprError(String),
-}
-
-impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpreter {
-    fn visit_expr(&mut self, e: &Expr) -> Result<Object, RuntimeError>{
-        use RuntimeError::*;
+impl Visitor<Result<Object, InterpreterError>, Result<(), InterpreterError>> for Interpreter {
+    fn visit_expr(&mut self, e: &Expr) -> Result<Object, InterpreterError>{
         use Object::*;
         match e {
             Expr::Literal(o) => { Ok(o.clone()) },
@@ -68,7 +77,7 @@ impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpr
                         if let Number(x) = val {
                             Ok(Number(-x))
                         } else {
-                            Err(ExprError(format!("expected number type at {}", expr)))
+                            Err(RuntimeError(format!("expected number type at {}", expr)))
                         }
                     },
                 }
@@ -83,7 +92,7 @@ impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpr
                         match (left, right) {
                             (Number(left), Number(right)) => Ok(Number(left + right)),
                             (String(left), String(right)) => Ok(String(Box::new(*left.clone() + &right))),
-                            _ => Err(ExprError(format!("mismatched type at {}", e)))
+                            _ => Err(RuntimeError(format!("mismatched type at {}", e)))
                         }
                     },
                     BinaryOp::LT | BinaryOp::LE | BinaryOp::GT | BinaryOp::GE => {
@@ -95,7 +104,7 @@ impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpr
                                 { left >= right }
                             ))
                         } else {
-                            Err(ExprError(format!("mismatched type at {}", e)))
+                            Err(RuntimeError(format!("mismatched type at {}", e)))
                         }
                     }
                     BinaryOp::SUB | BinaryOp::MUL | BinaryOp::DIV => {
@@ -106,7 +115,7 @@ impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpr
                                 { left / right }
                             ))
                         } else {
-                            Err(ExprError(format!("mismatched type at {}", e)))
+                            Err(RuntimeError(format!("mismatched type at {}", e)))
                         }
                     }
                     // short cut
@@ -115,11 +124,11 @@ impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpr
                 }
             }
             Expr::Varible(v) => {
-                self.env.borrow().get(v)
+                Ok(self.env.borrow_mut().get(v.env_depth, v.id))
             }
             Expr::Assign(s, e) => {
                 let val = self.visit_expr(e)?;
-                self.env.borrow_mut().assign(s, val.clone())?;
+                self.env.borrow_mut().set(s.env_depth, s.id, val.clone());
                 Ok(val.clone())
             }
             Expr::Call(expr, arguments) => {
@@ -130,7 +139,7 @@ impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpr
                 }
                 let f = callee.to_callable()?;
                 if f.arity() != args.len() {
-                    return Err(RuntimeError::ExprError(format!("wrong number of arguments")));
+                    return Err(RuntimeError(format!("wrong number of arguments")));
                 }
                 f.call(self, &args)?;
                 if let Some(o) = mem::replace(&mut self.return_object, None) {
@@ -142,7 +151,7 @@ impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpr
         }
     }
 
-    fn visit_stmt(&mut self, s: &Stmt) -> Result<(), RuntimeError> {
+    fn visit_stmt(&mut self, s: &Stmt) -> Result<(), InterpreterError> {
         match s {
             Stmt::Expression(e) => {
                 self.visit_expr(e)?;
@@ -154,7 +163,7 @@ impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpr
                 Ok(())
             },
             Stmt::Var(name ,e) => {
-                let val = self.visit_expr(e)?;
+                let val = if let Some(e) = e { self.visit_expr(e)? } else { Object::Nil };
                 self.env.borrow_mut().define(&name, val);
                 Ok(())
             }
@@ -186,7 +195,7 @@ impl Visitor<Result<Object, RuntimeError>, Result<(), RuntimeError>> for Interpr
             }
             Stmt::Function { name, params, body } => {
                 self.env.borrow_mut().define(name, Object::Function(
-                    Box::new(LoxFunction::new(name.clone(), params.clone(), body.clone(), self.env.clone()))
+                    Rc::new(LoxFunction::new(name.clone(), params.clone(), body.clone(), self.env.clone())) // clone once
                 ));
                 Ok(())
             }
@@ -208,17 +217,16 @@ impl Interpreter {
             return_object: None,
         }
     }
-    pub fn get_global(&self) -> Rc<RefCell<Environment>> {
-        self.globals.clone()
-    }
-    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<(), RuntimeError> {
+    pub fn interpret(&mut self, mut statements: Vec<Stmt>) -> Result<(), InterpreterError> {
+        let mut resolver = Resolver::new();
+        resolver.resolve(&mut statements)?;
         for statement in statements {
-            self.visit_stmt(statement)?;
+            self.visit_stmt(&statement)?;
         }
         Ok(())
     }
 
-    pub fn execute_block(&mut self, v: &Vec<Stmt>, env: Environment) -> Result<(), RuntimeError> {
+    pub fn execute_block(&mut self, v: &Vec<Stmt>, env: Environment) -> Result<(), InterpreterError> {
         let previous = self.env.clone();
         self.env = Rc::new(RefCell::new(env));
         for stmt in v {
@@ -231,3 +239,4 @@ impl Interpreter {
         Ok(())
     }
 }
+

@@ -4,9 +4,11 @@ extern crate lazy_static;
 mod parser2;
 mod object;
 mod interpreter;
+mod resolver;
 mod ast;
 use std::{io::{self, Read}};
 use interpreter::Interpreter;
+use parser2::convert_u8_string;
 fn run(s: String) {
     let res = parser2::program(s.as_bytes());
     let mut interpreter = Interpreter::new();
@@ -18,7 +20,7 @@ fn run(s: String) {
             if reamin.len() != 0 {
                 println!("parse failed at {}", String::from_utf8(reamin.into()).unwrap())
             } else {
-                let res = interpreter.interpret(&ast);
+                let res = interpreter.interpret(ast);
                 match res {
                     Ok(_) => println!("success!"),
                     Err(e) => println!("{:?}", e),
@@ -48,15 +50,14 @@ fn run_file(path: &str) -> io::Result<()> {
     Ok(())
 }
 fn main() -> io::Result<()> {
-    // let args: Vec<String> = std::env::args().collect();
-    // if args.len() > 2 {
-    //     println!("Usage: jok [script]");
-    //     std::process::exit(64);
-    // } else if args.len() == 2 {
-    //     run_file(&args[1])?;
-    // } else {
-    //     run_prompt()?;
-    // }
-    // Ok(())
-    run_file("1.txt")
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 2 {
+        println!("Usage: jok [script]");
+        std::process::exit(64);
+    } else if args.len() == 2 {
+        run_file(&args[1])?;
+    } else {
+        run_prompt()?;
+    }
+    Ok(())
 }

@@ -1,6 +1,4 @@
-use core::fmt::Display;
-
-use alloc::rc::Rc;
+use core::{fmt::Display};
 
 use super::object::*;
 
@@ -9,12 +7,25 @@ pub trait Visitor<T1, T2> {
     fn visit_stmt(&mut self, e: &Stmt) -> T2;
 }
 
+#[derive(Clone, Debug)]
+pub struct Identifier {
+    pub name: Box<String>, // won't visit it in interpreting pass move
+    pub env_depth: usize,
+    pub id: usize,
+}
+impl Identifier {
+    pub fn new(name: String) -> Self {
+        Self { name: Box::new(name), env_depth: usize::MAX, id: usize::MAX} // don't know env_depth and id at first
+        
+    }
+}
+#[derive(Clone)]
 pub enum Expr {
     Literal(Object),
     Unary(UnaryOp, Box<Expr>), // (op, expr)
     Binary(BinaryOp, Box<Expr>, Box<Expr>), // (op, left, right)
-    Varible(String),
-    Assign(String, Box<Expr>), 
+    Varible(Identifier),
+    Assign(Identifier, Box<Expr>), 
     Call(Box<Expr>, Vec<Expr>), // (callee, arguments)
 }
 
@@ -24,8 +35,8 @@ impl Display for Expr {
             Expr::Literal(o) => write!(f, "{}", o),
             Expr::Unary(op, e) => write!(f, "({:?} {})", op, e),
             Expr::Binary(op, l, r) => write!(f, "({} {:?} {})", l, op, r),
-            Expr::Varible(v) => write!(f, "{}", v),
-            Expr::Assign(v, e) => write!(f, "{} = {}", v, e),
+            Expr::Varible(v) => write!(f, "{}", v.name),
+            Expr::Assign(v, e) => write!(f, "{} = {}", v.name, e),
             Expr::Call(func, a) => {
                 write!(f, "{}(", func)?;
                 for (i, e) in a.iter().enumerate() {
@@ -41,17 +52,18 @@ impl Display for Expr {
     }
 }
 
+#[derive(Clone)]
 pub enum Stmt {
     Expression(Expr),
     Print(Expr),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
-    Var(String, Expr),
+    Var(Identifier, Option<Expr>),
     Block(Vec<Stmt>),
     Function{
-        name: String,
-        params: Vec<String>,
-        body: Rc<Vec<Stmt>>,
+        name: Identifier,
+        params: Vec<Identifier>,
+        body: Vec<Stmt>,
     },
     Return(Expr),
 }
@@ -69,7 +81,13 @@ impl Display for Stmt {
                 }
             },
             Stmt::While(cond, stmt) => write!(f, "while ({})\n{}", cond, stmt),
-            Stmt::Var(s, expr) => write!(f, "var {} = {};", s, expr),
+            Stmt::Var(s, expr) => {
+                if let Some(expr) = expr {
+                    write!(f, "var {} = {};", s.name, expr)
+                } else {
+                    write!(f, "var {};", s.name)
+                }
+            }
             Stmt::Block(v) => {
                 write!(f, "{{")?;
                 for stmt in v {
@@ -77,8 +95,8 @@ impl Display for Stmt {
                 }
                 write!(f,"\n}}")
             }
-            Stmt::Function { name, params: _, body: _} => write!(f, "function {}\n", name),
-            Stmt::Return(_) => todo!(),
+            Stmt::Function { name, params: _, body: _} => write!(f, "function {}\n", name.name),
+            Stmt::Return(_) => write!(f, "return statement"),
         }
     }
 }
