@@ -15,12 +15,31 @@ use nom::{
     bytes::{complete::{take, take_while, take_while_m_n, take_while1, tag}}, 
     sequence::{delimited, preceded, pair, terminated, tuple}, 
     multi::{many0, many_till, separated_list0}, 
-    AsBytes, error::{ErrorKind}
+    AsBytes, 
+    error::{ErrorKind}
 };
 
-macro_rules! skip {
-    ($f: ident) => { delimited(skip_all, $f, skip_all) };
-    ($f: expr) => { delimited(skip_all, $f, skip_all) };
+lazy_static! {
+    static ref KEYWORDS_SET : HashSet<String> = {
+        let mut map = HashSet::new();
+        map.insert("and".to_owned());
+        map.insert("class".to_owned());
+        map.insert("else".to_owned());
+        map.insert("false".to_owned());
+        map.insert("fun".to_owned());
+        map.insert("for".to_owned());
+        map.insert("if".to_owned());
+        map.insert("nil".to_owned());
+        map.insert("or".to_owned());
+        map.insert("print".to_owned());
+        map.insert("return".to_owned());
+        map.insert("super".to_owned());
+        map.insert("this".to_owned());
+        map.insert("true".to_owned());
+        map.insert("var".to_owned());
+        map.insert("while".to_owned());
+        map
+    };
 }
 
 fn equality_op(input: &[u8]) -> IResult<&[u8], BinaryOp> {
@@ -63,16 +82,15 @@ fn and_op(input: &[u8]) -> IResult<&[u8], BinaryOp> {
     value(BinaryOp::AND, parse_keywords("and".as_bytes()))(input)
 }
 
-
 type ExprResult<'a> = IResult<&'a[u8], Expr>;
 type StmtResult<'a> = IResult<&'a[u8], Stmt>;
 
 fn primary(input: &[u8]) -> ExprResult {
     use Object::*;
-    skip!(alt((
+    alt((
         map(parse_number, |i| Expr::Literal(Number(i))),
         map(parse_string, |s| Expr::Literal(String(Box::new(s)))),
-        map(pair(terminated(tag("super"), tuple((skip_all, tag("."), skip_all))), identifier), |(s0, s1)| 
+        map(pair(terminated(tag("super"), tuple((sp, tag("."), sp))), identifier), |(s0, s1)| 
             Expr::Super(Identifier::new(convert_u8_string(s0)), s1)
         ),
         map(identifier_or_keywords, |s| 
@@ -88,7 +106,7 @@ fn primary(input: &[u8]) -> ExprResult {
                 Expr::Varible(Identifier::new(s))
             }
         ),
-        delimited(tag("("), expression, tag(")"))
+        delimited(pair(tag("("), sp), expression, pair(sp, tag(")"))
     )))(input)
 }
 
@@ -97,7 +115,7 @@ macro_rules! chainl {
     ($lower: ident, $higher: ident, $get_op: ident) => {
         fn $lower(input: &[u8]) -> ExprResult {
             (map(
-                pair($higher, many0(pair(delimited(skip_all, $get_op, skip_all), $higher))),
+                pair($higher, many0(pair(delimited(sp, $get_op, sp), $higher))),
                 |(mut expr, v)| -> Expr {
                     for (op, right) in v {
                         expr = Expr::Binary(op, Box::new(expr), Box::new(right));
@@ -109,9 +127,9 @@ macro_rules! chainl {
     };
 }
 
-pub fn expression(input: &[u8]) -> ExprResult { skip!(assinment)(input) }
+pub fn expression(input: &[u8]) -> ExprResult { delimited(sp, assinment, sp)(input) }
 pub fn assinment(input: &[u8]) -> ExprResult {
-    let (next_input, (expr, eq)) = pair(terminated(logic_or, skip_all), opt(preceded(pair(tag("="), skip_all), assinment)))(input)?;
+    let (next_input, (expr, eq)) = pair(terminated(logic_or, sp), opt(preceded(pair(tag("="), sp), cut(assinment))))(input)?;
     if let Some(value) = eq {
         match expr {
             Expr::Varible(s) => Ok((next_input, Expr::Assign(s, Box::new(value)))),
@@ -132,22 +150,22 @@ chainl!(factor, unary, factor_op);
 
 fn unary(input: &[u8]) -> ExprResult {
     alt((
-        map(pair(unary_op, unary), |(op, expr)| Expr::Unary(op, Box::new(expr))),
+        map(pair(terminated(unary_op, sp), cut(unary)), |(op, expr)| Expr::Unary(op, Box::new(expr))),
         call
     ))(input)
 }
 
 fn call(input: &[u8]) -> ExprResult {
-    let (mut next_input, mut expr) = terminated(primary, skip_all)(input)?;
-    while let (tmp, Some(char)) = opt(terminated(alt((tag("("), tag("."))), skip_all))(next_input)? {
+    let (mut next_input, mut expr) = terminated(primary, sp)(input)?;
+    while let (tmp, Some(char)) = opt(terminated(alt((tag("("), tag("."))), sp))(next_input)? {
         if char == b"(" {
-            let (tmp, arguments) = cut(terminated(separated_list0(tag(","), expression), pair(skip_all, tag(")"))))(tmp)?;
+            let (tmp, arguments) = cut(terminated(separated_list0(tag(","), expression), pair(sp, tag(")"))))(tmp)?;
             expr = Expr::Call(Box::new(expr), arguments);
-            (next_input, _) = skip_all(tmp)?;
+            (next_input, _) = sp(tmp)?;
         } else {
             let (tmp, ident) = cut(identifier)(tmp)?;
             expr = Expr::Get(Box::new(expr), *ident.name);
-            (next_input, _) = skip_all(tmp)?;
+            (next_input, _) = sp(tmp)?;
         }
     }
     Ok((next_input, expr))
@@ -197,9 +215,9 @@ fn expr_stmt(input: &[u8]) -> StmtResult {
 fn var_decl(input: &[u8]) -> StmtResult {
     map(terminated(
             pair(
-                preceded(tag("var"), preceded(skip_all, identifier)),
-                skip!(opt(preceded(tag("="), expression)))),
-            tag(";")),
+                preceded(tag("var"), delimited(sp, identifier, sp)),
+                opt(preceded(tag("="), expression))),
+            pair(sp, tag(";"))),
         |(a,b)| Stmt::Var(a, b),
     )(input)
 }
@@ -215,11 +233,11 @@ fn if_stmt(input: &[u8]) -> StmtResult {
     map(
         tuple((
             preceded(
-                preceded(tag("if"), skip_all),
+                preceded(tag("if"), sp),
                 cut(delimited(tag("("), expression, tag(")"))),
             ),
-            cut(delimited(skip_all, statement, skip_all)),
-            opt(preceded(tag("else"), cut(preceded(skip_all, statement))))
+            cut(delimited(sp, statement, sp)),
+            opt(preceded(tag("else"), cut(preceded(sp, statement))))
         )),
         |(cond, then_branch, else_branch)|
             Stmt::If(cond, Box::new(then_branch), else_branch.map(Box::new))
@@ -229,10 +247,10 @@ fn if_stmt(input: &[u8]) -> StmtResult {
 fn while_stmt(input: &[u8]) -> StmtResult {
     map(
         preceded(
-            preceded(tag("while"), skip_all),
+            preceded(tag("while"), sp),
             pair(
                 cut(delimited(tag("("), expression, tag(")"))),
-                preceded(skip_all, statement)
+                preceded(sp, statement)
             )
         ),
         |(expr, stmt)| Stmt::While(expr, Box::new(stmt))
@@ -241,19 +259,19 @@ fn while_stmt(input: &[u8]) -> StmtResult {
 
 fn for_stmt(input: &[u8]) -> StmtResult {
     map(preceded(
-        pair(tag("for"), skip_all),
+        pair(tag("for"), sp),
         cut(tuple((
             preceded(
-                pair(tag("("), skip_all), 
+                pair(tag("("), sp), 
                 alt((
                     map(var_decl, Some),
                     map(tag(";"), |_| None),
                     map(expr_stmt, Some),
                 ))
             ),
-            delimited(skip_all, opt(expression), tag(";")),
-            delimited(skip_all, opt(expression), tag(")")),
-            preceded(skip_all, statement)
+            delimited(sp, opt(expression), tag(";")),
+            delimited(sp, opt(expression), tag(")")),
+            preceded(sp, statement)
         )))),
         |(stmt1, expr1, expr2, stmt2)| -> Stmt {
             let mut while_block = vec![stmt2];
@@ -273,7 +291,7 @@ fn for_stmt(input: &[u8]) -> StmtResult {
 
 fn return_stmt(input: &[u8]) -> StmtResult {
     map(
-        delimited(tag("return"), opt(expression), pair(skip_all, tag(";"))),
+        delimited(tag("return"), opt(expression), pair(sp, tag(";"))),
         |expr| Stmt::Return(if let Some(expr) = expr { expr } else {Expr::Literal(Object::Nil)})
     )(input)
 }
@@ -283,14 +301,14 @@ fn statement(input: &[u8]) -> StmtResult {
 }
 
 fn fun_decl(input: &[u8]) -> StmtResult {
-    map(preceded(pair(tag("fun"), skip_all), function), Stmt::Func)(input)
+    map(preceded(pair(tag("fun"), sp), function), Stmt::Func)(input)
 }
 
 fn function(input: &[u8]) -> IResult<&[u8], FunctionBody>{
     map(tuple((
-        terminated(identifier, pair(skip_all, tag("("))),
-        separated_list0(tag(","), delimited(skip_all, identifier, skip_all)),
-        preceded(delimited(skip_all, tag(")"),skip_all), delimited(tag("{"), many0(declaration), cut(tag("}"))))
+        terminated(identifier, pair(sp, tag("("))),
+        separated_list0(tag(","), delimited(sp, identifier, sp)),
+        preceded(delimited(sp, tag(")"),sp), delimited(tag("{"), many0(declaration), cut(tag("}"))))
     )),
         |(ident, params, body)| 
         FunctionBody { ident, params, body}
@@ -300,48 +318,26 @@ fn function(input: &[u8]) -> IResult<&[u8], FunctionBody>{
 fn class_decl(input: &[u8]) -> StmtResult {
     map(
         terminated(tuple((
-                delimited(pair(tag("class"), skip_all), identifier, skip_all), 
-                opt(preceded(pair(tag("<"),skip_all), identifier)),
-                preceded(pair(skip_all, tag("{")), many0(preceded(skip_all, function))),
+                delimited(pair(tag("class"), sp), identifier, sp), 
+                opt(preceded(pair(tag("<"),sp), identifier)),
+                preceded(pair(sp, tag("{")), many0(preceded(sp, function))),
             )),
-            pair(skip_all, tag("}"))
+            pair(sp, tag("}"))
         ), 
         |(ident, super_class, funcs)| Stmt::Class(ident, super_class, funcs)
     )(input)
 }
 
 fn declaration(input: &[u8]) -> StmtResult {
-    skip!(
-        alt((var_decl, fun_decl, class_decl, statement))
+    terminated(
+        alt((var_decl, fun_decl, class_decl, statement)),sp
     )(input)
 }
 
 pub fn program(input: &[u8]) -> IResult<&[u8], Vec<Stmt>> {
-    skip!(many0(declaration))(input)
+    preceded(sp, many0(declaration))(input)
 }
 
-lazy_static! {
-    static ref KEYWORDS_SET : HashSet<String> = {
-        let mut map = HashSet::new();
-        map.insert("and".to_owned());
-        map.insert("class".to_owned());
-        map.insert("else".to_owned());
-        map.insert("false".to_owned());
-        map.insert("fun".to_owned());
-        map.insert("for".to_owned());
-        map.insert("if".to_owned());
-        map.insert("nil".to_owned());
-        map.insert("or".to_owned());
-        map.insert("print".to_owned());
-        map.insert("return".to_owned());
-        map.insert("super".to_owned());
-        map.insert("this".to_owned());
-        map.insert("true".to_owned());
-        map.insert("var".to_owned());
-        map.insert("while".to_owned());
-        map
-    };
-}
 
 fn identifier_or_keywords(input: &[u8]) -> IResult<&[u8], String> {
     map(recognize(
@@ -372,6 +368,6 @@ fn block_comment(input: &[u8]) -> IResult<&[u8], ()> {
 fn skip_block_comment(input: &[u8]) -> IResult<&[u8],()> {
     preceded(tag("/*"), block_comment)(input)
 }
-fn skip_all(input: &[u8]) -> IResult<&[u8],()> {
+fn sp(input: &[u8]) -> IResult<&[u8],()> {
     map(many0(alt((skip_white_space, skip_line_comment, skip_block_comment))), |_| ()) (input)
 }

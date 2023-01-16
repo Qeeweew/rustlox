@@ -97,7 +97,7 @@ impl Resolver {
             Expr::Super(i,_) => {
                 if matches!(self.current_class, ClassType::None) {
                     return Err(ResolverError(format!("Can't use 'super' outside of a class.")));
-                } else if matches!(self.current_class, ClassType::SubClass) {
+                } else if matches!(self.current_class, ClassType::Class) {
                     return Err(ResolverError(format!("Can't use 'super' with no super class.")));
                 }
                 self.resolve_local(i)

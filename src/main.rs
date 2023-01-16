@@ -6,6 +6,7 @@ mod object;
 mod interpreter;
 mod resolver;
 mod ast;
+mod json;
 use core::time::Duration;
 use std::{io::{self, Read}, time::{SystemTime, UNIX_EPOCH}};
 use interpreter::{Interpreter, InterpreterError};
