@@ -32,6 +32,10 @@ impl Environment {
     pub fn define_this(&mut self, instace: Rc<RefCell<LoxInstance>>) {
         self.values.push(Object::Instance(instace))
     }
+
+    pub fn define_super(&mut self, class: Rc<LoxClass>) {
+        self.values.push(Object::Class(class))
+    }
     pub fn define(&mut self, ident: &Identifier, o: Object) {
         assert!(ident.id != INF);
         assert!(ident.env_depth == 0);
@@ -90,11 +94,8 @@ impl Interpreter {
                 match op {
                     UnaryOp::Not => Ok(Bool(!val.is_truthy())),
                     UnaryOp::Neg => {
-                        if let Number(x) = val {
-                            Ok(Number(-x))
-                        } else {
-                            Err(RuntimeError(format!("expected number type at {}", expr)))
-                        }
+                        let x = val.to_f64()?;
+                        Ok(Number(-x))
                     },
                 }
             }
@@ -162,11 +163,20 @@ impl Interpreter {
                 let object = self.visit_expr(expr)?;
                 let instance = object.to_instance()?;
                 let value = self.visit_expr(value)?;
-                let mut ref_instance = instance.borrow_mut();
-                ref_instance.set(&name, value.clone());
+                LoxInstance::set(instance, name, value.clone());
                 Ok(value)
             }
             Expr::This(v) => Ok(self.env.borrow().get(v)),
+            Expr::Super(s, method_ident) => {
+                let super_class = self.env.borrow().get(s).to_class()?;
+                let lox_instace = self.env.borrow().get_(s.env_depth - 1, 0).to_instance()?; // this should be there
+                let method = super_class.as_ref().find_method(&method_ident.name);
+                if let Some(method) = method {
+                    Ok(Object::Closure(Box::new(method.bind(lox_instace))))
+                } else {
+                    Err(RuntimeError(format!("undefined method {}", &method_ident.name)))
+                }
+            },
         }
     }
 
@@ -221,17 +231,31 @@ impl Interpreter {
                 self.return_object = Some(self.visit_expr(expr)?);
                 Ok(())
             }
-            Stmt::Class(ident, body) => {
+            Stmt::Class(ident,super_class_name, body) => {
                 self.env.borrow_mut().define(&ident, Object::Nil);
+                let mut super_class = None;
+                if let Some(super_class_name) = super_class_name {
+                    super_class = Some(self.env.borrow().get(super_class_name).to_class()?);
+                }
+                if let Some(super_class) = &super_class {
+                    self.env = Rc::new(RefCell::new(Environment::new(Some(self.env.clone()))));
+                    self.env.borrow_mut().define_super(super_class.clone());
+                }
+
                 let methods = HashMap::from_iter(
                     body.iter().map(|f| 
                         (f.ident.name.as_ref().clone(), LoxFunction::new(f.clone(), self.env.clone(), f.ident.name.as_ref() == "init"))
                     )
                 );
-                let lox_class = LoxClass::new(ident.clone(), methods);
-                self.env.borrow_mut().assign(&ident, Object::ClassCons(
-                    Rc::new(lox_class)
-                ));
+
+                if super_class.is_some() {
+                    let parent_env = self.env.borrow().parent.clone();
+                    let parent_env = parent_env.unwrap();
+                    self.env = parent_env;
+                }
+
+                let lox_class = LoxClass::new(ident.clone(), super_class.clone(), methods);
+                self.env.borrow_mut().assign(&ident, Object::Class(Rc::new(lox_class)));
                 Ok(())
             }
         }

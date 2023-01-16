@@ -25,6 +25,7 @@ pub enum Expr {
     Get(Box<Expr>, String), // (object, property)
     Set(Box<Expr>, String, Box<Expr>),
     This(Identifier),
+    Super(Identifier, Identifier),
 }
 
 impl Display for Expr {
@@ -49,6 +50,7 @@ impl Display for Expr {
             Expr::Get(e, s) => write!(f, "{}.{}", e, s),
             Expr::Set(o, s, v) => write!(f,"{}.{} = {}", o, s, v),
             Expr::This(_) => write!(f,"this"),
+            Expr::Super(_, method) => write!(f, "super.{}", method.name),
         }
     }
 }
@@ -70,7 +72,7 @@ pub enum Stmt {
     Block(Vec<Stmt>),
     Func(FunctionBody),
     Return(Expr),
-    Class(Identifier, Vec<FunctionBody>),
+    Class(Identifier, Option<Identifier>, Vec<FunctionBody>),
 }
 
 impl Display for Stmt {
@@ -102,7 +104,7 @@ impl Display for Stmt {
             }
             Stmt::Func(func) => write!(f, "function {}\n", func.ident.name),
             Stmt::Return(_) => write!(f, "return statement"),
-            Stmt::Class(ident,_) => write!(f, "class {}\n", ident.name),
+            Stmt::Class(ident,_,_) => write!(f, "class {}\n", ident.name),
         }
     }
 }

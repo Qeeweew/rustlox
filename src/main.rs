@@ -30,9 +30,9 @@ fn run(s: String) {
     let mut interpreter = Interpreter::new(vec);
     match res {
         Ok((reamin, ast)) => {
-            for stmt in &ast {
-                println!("{}", stmt)
-            }
+            // for stmt in &ast {
+            //     println!("{}", stmt)
+            // }
             if reamin.len() != 0 {
                 println!("parse failed at {}", String::from_utf8(reamin.into()).unwrap())
             } else {

@@ -14,6 +14,7 @@ enum FunctionType {
 enum ClassType {
     None,
     Class,
+    SubClass,
 }
 pub struct Resolver {
     scopes: Vec<HashMap<String, usize>>,
@@ -68,7 +69,7 @@ impl Resolver {
                     return Err(ResolverError(format!("Can't read local variable in its own initializer.")))
                 }
                 self.resolve_local(ident)?;
-                println!("{:?}", ident);
+                // println!("{:?}", ident);
                 Ok(())
             }
             Expr::Assign(i, e) => {
@@ -92,6 +93,14 @@ impl Resolver {
                     return Err(ResolverError(format!("Can't use 'this' outside of a class.")));
                 }
                 self.resolve_local(ident)
+            }
+            Expr::Super(i,_) => {
+                if matches!(self.current_class, ClassType::None) {
+                    return Err(ResolverError(format!("Can't use 'super' outside of a class.")));
+                } else if matches!(self.current_class, ClassType::SubClass) {
+                    return Err(ResolverError(format!("Can't use 'super' with no super class.")));
+                }
+                self.resolve_local(i)
             }
         }
     }
@@ -161,17 +170,32 @@ impl Resolver {
                     self.resolve_expr(e)
                 }
             }
-            Stmt::Class(name, body) => {
+            Stmt::Class(name,super_class, body) => {
                 let previous_class = self.current_class;
-                self.current_class = ClassType::Class;
+                self.current_class = if super_class.is_none() { ClassType::Class } else { ClassType::SubClass };
                 self.declare(name)?;
                 self.define(name);
+
+                if let Some(super_class) = super_class {
+                    if super_class.name == name.name {
+                        return Err(ResolverError(format!("A class can't inherit from itself")));
+                    }
+                    self.resolve_local(super_class)?;
+                    self.begin_scope();
+                    self.scopes.last_mut().unwrap().insert("super".to_owned(), 0);
+                }
+
                 self.begin_scope();
                 self.scopes.last_mut().unwrap().insert("this".to_owned(), 0);
                 for method in body {
                     self.resolve_function(method, FunctionType::Method)?;
                 }
                 self.end_scope();
+
+                if super_class.is_some() {
+                    self.end_scope();
+                }
+
                 self.current_class = previous_class;
                 Ok(())
             }

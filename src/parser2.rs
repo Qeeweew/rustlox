@@ -72,6 +72,9 @@ fn primary(input: &[u8]) -> ExprResult {
     skip!(alt((
         map(parse_number, |i| Expr::Literal(Number(i))),
         map(parse_string, |s| Expr::Literal(String(Box::new(s)))),
+        map(pair(terminated(tag("super"), tuple((skip_all, tag("."), skip_all))), identifier), |(s0, s1)| 
+            Expr::Super(Identifier::new(convert_u8_string(s0)), s1)
+        ),
         map(identifier_or_keywords, |s| 
             if s == "true" {
                 Expr::Literal(Bool(true))
@@ -296,13 +299,14 @@ fn function(input: &[u8]) -> IResult<&[u8], FunctionBody>{
 
 fn class_decl(input: &[u8]) -> StmtResult {
     map(
-        terminated(pair(
-                delimited(tag("class"), skip!(identifier), tag("{")), 
-                many0(preceded(skip_all, function)), 
-            ),
+        terminated(tuple((
+                delimited(pair(tag("class"), skip_all), identifier, skip_all), 
+                opt(preceded(pair(tag("<"),skip_all), identifier)),
+                preceded(pair(skip_all, tag("{")), many0(preceded(skip_all, function))),
+            )),
             pair(skip_all, tag("}"))
         ), 
-        |(ident, funcs)| Stmt::Class(ident, funcs)
+        |(ident, super_class, funcs)| Stmt::Class(ident, super_class, funcs)
     )(input)
 }
 
