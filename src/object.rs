@@ -1,4 +1,4 @@
-use core::{fmt::{Display}, cell::{RefCell, Ref},mem};
+use core::{fmt::{Display}, cell::{RefCell},mem};
 use std::collections::HashMap;
 use alloc::rc::Rc;
 
@@ -19,6 +19,7 @@ pub struct RustFunction {
     pub arity: usize,
 }
 
+#[derive(Clone)]
 pub struct LoxFunction {
     func: Rc<FunctionBody>,
     closure: Rc<RefCell<Environment>>,
@@ -27,8 +28,10 @@ pub struct LoxFunction {
 
 pub struct LoxClass {
     name: Identifier,
-    methods: HashMap<String, Rc<LoxFunction>>,
+    methods: HashMap<String, LoxFunction>,
 }
+
+#[derive(Clone)]
 pub struct LoxInstance {
     lox_class: Rc<LoxClass>,
     pub fields: HashMap<String, Object>,
@@ -39,7 +42,9 @@ pub enum Object {
     Number(f64),
     String(Box<String>),
     Bool(bool),
-    Function(Rc<dyn LoxCallable>),
+    Closure(Box<LoxFunction>),
+    BuitlinFunc(Box<RustFunction>),
+    ClassCons(Rc<LoxClass>),
     Instance(Rc<RefCell<LoxInstance>>),
     Nil,
 }
@@ -67,7 +72,7 @@ impl LoxCallable for LoxFunction {
             Ok(o)
         } else {
             if self.is_initializer {
-                Ok(env.borrow().get_(1, 0))
+                Ok(env.borrow().get_(1, 0)) // "this"'s cooordinate is always (1, 0)
             } else {
                 Ok(Object::Nil)
             }
@@ -124,13 +129,13 @@ impl Display for LoxClass {
 }
 
 impl LoxClass {
-    pub fn new(ident: Identifier, methods: HashMap<String, Rc<LoxFunction>>) -> Self {
+    pub fn new(ident: Identifier, methods: HashMap<String, LoxFunction>) -> Self {
         Self {
             name: ident, methods 
         }
     }
 
-    pub fn find_method(&self, name: &String) -> Option<Rc<LoxFunction>> {
+    pub fn find_method(&self, name: &String) -> Option<LoxFunction> {
         self.methods.get(name).map(|x| x.clone())
     }
 }
@@ -142,8 +147,10 @@ impl Display for Object {
             Object::String(s) => write!(f, "{}", s),
             Object::Bool(b) => write!(f, "{}", b),
             Object::Nil => write!(f,"Nil"),
-            Object::Function(fun) => write!(f, "{}" ,fun),
             Object::Instance(o) => write!(f, "a instance of class: {}", o.borrow().lox_class),
+            Object::Closure(fun) => write!(f, "closure: {}", fun),
+            Object::BuitlinFunc(fun) => write!(f, "builtin function: {}",fun),
+            Object::ClassCons(fun) => write!(f, "ClassConstruct: {}", fun),
         }
     }
 }
@@ -155,7 +162,7 @@ impl LoxInstance {
             return Ok(o.clone());
         }
         if let Some(method) = ref_instance.lox_class.find_method(name) {
-            return Ok(Object::Function(Rc::new(method.bind(instance.clone()))));
+            return Ok(Object::Closure(Box::new(method.bind(instance.clone()))));
         }
         Err(RuntimeError(format!("Undefined property {}.", name)))
     }
@@ -173,10 +180,24 @@ impl Object {
             _ => true,
         }
     }
-    pub fn to_callable(&self) -> Result<Rc<dyn LoxCallable>, InterpreterError> {
+    pub fn to_callable(self) -> Result<Box<dyn LoxCallable>, InterpreterError> {
         match self {
-            Object::Function(f) => Ok(f.clone()),
+            Object::Closure(f) => Ok(f),
+            Object::BuitlinFunc(f) => Ok(f),
+            Object::ClassCons(f) => Ok(Box::new(f)),
             _ => Err(RuntimeError(format!("{} not a callable object", self)))
+        }
+    }
+    pub fn to_f64(self) -> Result<f64, InterpreterError> {
+        match self {
+            Object::Number(x) => Ok(x),
+            _ => Err(RuntimeError(format!("{} is not a number", self))),
+        }
+    }
+    pub fn to_bool(self) -> Result<bool, InterpreterError> {
+        match self {
+            Object::Bool(x) => Ok(x),
+            _ => Err(RuntimeError(format!("{} is not a boolean", self))),
         }
     }
     pub fn to_instance(&self) -> Result<Rc<RefCell<LoxInstance>>, InterpreterError> {

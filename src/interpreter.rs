@@ -22,7 +22,7 @@ impl Environment {
     pub fn new_global(builtin_functions: &Vec<RustFunction>) -> Self {
         let mut values = vec![];
         for f in builtin_functions {
-            values.push(Object::Function(Rc::new(f.clone())));
+            values.push(Object::BuitlinFunc(Box::new(f.clone())));
         }
         Environment { values, parent: None }
     }
@@ -112,27 +112,21 @@ impl Interpreter {
                         }
                     },
                     BinaryOp::LT | BinaryOp::LE | BinaryOp::GT | BinaryOp::GE => {
-                        if let (Number(left), Number(right)) = (left, right) {
-                            Ok(Bool(
-                                if *op == BinaryOp::LT { left < right } else 
-                                if *op == BinaryOp::LE { left <= right} else 
-                                if *op == BinaryOp::GT { left > right } else 
-                                { left >= right }
-                            ))
-                        } else {
-                            Err(RuntimeError(format!("mismatched type at {}", e)))
-                        }
+                        let (left, right) = (left.to_f64()?, right.to_f64()?);
+                        Ok(Bool(
+                            if *op == BinaryOp::LT { left < right } else 
+                            if *op == BinaryOp::LE { left <= right} else 
+                            if *op == BinaryOp::GT { left > right } else 
+                            { left >= right }
+                        ))
                     }
                     BinaryOp::SUB | BinaryOp::MUL | BinaryOp::DIV => {
-                        if let (Number(left), Number(right)) = (left, right) {
-                            Ok(Number(
-                                if *op == BinaryOp::SUB { left - right } else 
-                                if *op == BinaryOp::MUL { left * right } else 
-                                { left / right }
-                            ))
-                        } else {
-                            Err(RuntimeError(format!("mismatched type at {}", e)))
-                        }
+                        let (left, right) = (left.to_f64()?, right.to_f64()?);
+                        Ok(Number(
+                            if *op == BinaryOp::SUB { left - right } else 
+                            if *op == BinaryOp::MUL { left * right } else 
+                            { left / right }
+                        ))
                     }
                     // short cut
                     BinaryOp::OR => Ok(if left.is_truthy() { left.clone() } else { right.clone() }),
@@ -218,8 +212,8 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Func(f) => {
-                self.env.borrow_mut().define(&f.ident, Object::Function(
-                    Rc::new(LoxFunction::new(f.clone(), self.env.clone(), false)) // clone once
+                self.env.borrow_mut().define(&f.ident, Object::Closure(
+                    Box::new(LoxFunction::new(f.clone(), self.env.clone(), false)) // clone once
                 ));
                 Ok(())
             }
@@ -231,12 +225,12 @@ impl Interpreter {
                 self.env.borrow_mut().define(&ident, Object::Nil);
                 let methods = HashMap::from_iter(
                     body.iter().map(|f| 
-                        (f.ident.name.as_ref().clone(), Rc::new(LoxFunction::new(f.clone(), self.env.clone(), f.ident.name.as_ref() == "init")))
+                        (f.ident.name.as_ref().clone(), LoxFunction::new(f.clone(), self.env.clone(), f.ident.name.as_ref() == "init"))
                     )
                 );
                 let lox_class = LoxClass::new(ident.clone(), methods);
-                self.env.borrow_mut().assign(&ident, Object::Function(
-                    Rc::new(Rc::new(lox_class))
+                self.env.borrow_mut().assign(&ident, Object::ClassCons(
+                    Rc::new(lox_class)
                 ));
                 Ok(())
             }
