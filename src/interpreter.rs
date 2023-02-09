@@ -115,17 +115,17 @@ impl Interpreter {
                     BinaryOp::LT | BinaryOp::LE | BinaryOp::GT | BinaryOp::GE => {
                         let (left, right) = (left.to_f64()?, right.to_f64()?);
                         Ok(Bool(
-                            if *op == BinaryOp::LT { left < right } else 
-                            if *op == BinaryOp::LE { left <= right} else 
-                            if *op == BinaryOp::GT { left > right } else 
+                            if *op == BinaryOp::LT { left < right } else
+                            if *op == BinaryOp::LE { left <= right} else
+                            if *op == BinaryOp::GT { left > right } else
                             { left >= right }
                         ))
                     }
                     BinaryOp::SUB | BinaryOp::MUL | BinaryOp::DIV => {
                         let (left, right) = (left.to_f64()?, right.to_f64()?);
                         Ok(Number(
-                            if *op == BinaryOp::SUB { left - right } else 
-                            if *op == BinaryOp::MUL { left * right } else 
+                            if *op == BinaryOp::SUB { left - right } else
+                            if *op == BinaryOp::MUL { left * right } else
                             { left / right }
                         ))
                     }

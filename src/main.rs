@@ -1,12 +1,15 @@
 extern crate alloc;
+extern crate pest;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate pest_derive;
 mod parser2;
 mod object;
 mod interpreter;
 mod resolver;
 mod ast;
-mod json;
+mod parser;
 use core::time::Duration;
 use std::{io::{self, Read}, time::{SystemTime, UNIX_EPOCH}};
 use interpreter::{Interpreter, InterpreterError};
@@ -21,7 +24,7 @@ fn clock_(_: &Vec<Object>) -> Result<Object, InterpreterError>{
 }
 
 fn run(s: String) {
-    let res = parser2::program(s.as_bytes());
+    let res = parser::parse(s.as_str());
     let clock = RustFunction {
         name: "clock".to_owned(),
         func: clock_,
@@ -30,19 +33,15 @@ fn run(s: String) {
     let vec = vec![clock];
     let mut interpreter = Interpreter::new(vec);
     match res {
-        Ok((reamin, ast)) => {
+        Ok(ast) => {
             // for stmt in &ast {
             //     println!("{}", stmt)
             // }
-            if reamin.len() != 0 {
-                println!("parse failed at {}", String::from_utf8(reamin.into()).unwrap())
-            } else {
-                let res = interpreter.interpret(ast);
-                match res {
-                    Ok(_) => println!("success!"),
-                    Err(e) => println!("{:?}", e),
-                };
-            }
+            let res = interpreter.interpret(ast);
+            match res {
+                Ok(_) => println!("success!"),
+                Err(e) => println!("{:?}", e),
+            };
         }
         Err(e) => println!("{:?}", e),
     }

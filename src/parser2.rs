@@ -127,9 +127,9 @@ macro_rules! chainl {
     };
 }
 
-pub fn expression(input: &[u8]) -> ExprResult { delimited(sp, assinment, sp)(input) }
-pub fn assinment(input: &[u8]) -> ExprResult {
-    let (next_input, (expr, eq)) = pair(terminated(logic_or, sp), opt(preceded(pair(tag("="), sp), cut(assinment))))(input)?;
+pub fn expression(input: &[u8]) -> ExprResult { delimited(sp, assignment, sp)(input) }
+pub fn assignment(input: &[u8]) -> ExprResult {
+    let (next_input, (expr, eq)) = pair(terminated(logic_or, sp), opt(preceded(pair(tag("="), sp), cut(assignment))))(input)?;
     if let Some(value) = eq {
         match expr {
             Expr::Varible(s) => Ok((next_input, Expr::Assign(s, Box::new(value)))),

@@ -1,5 +1,5 @@
 use core::{fmt::{Display}, cell::{RefCell},mem};
-use std::{collections::HashMap, fs::OpenOptions};
+use std::{collections::HashMap};
 use alloc::rc::Rc;
 
 use crate::ast::{Identifier, FunctionBody};
@@ -175,7 +175,6 @@ impl LoxInstance {
         ref_instance.fields.insert(name.clone(), value);
     }
 }
-
 
 impl Object {
     pub fn is_truthy(&self) -> bool {

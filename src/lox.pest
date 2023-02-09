@@ -1,17 +1,18 @@
 program = _{SOI ~ declaration* ~ EOI}
 
-declaration =  {
+declaration = _{
     classDecl
   | funDecl
   | varDecl
   | statement
 }
 
-classDecl =  {"class" ~ IDENTIFIER ~ ("<" ~ IDENTIFIER)? ~ "{" ~ function* ~ "}" ~ ";"}
-funDecl   =  {"fun" ~ function ~ ";"}
-varDecl   =  {"var" ~ IDENTIFIER ~ ("=" ~ expression)? ~ ";"}
+classDecl =  {"class" ~ identifier ~ super_class ~ "{" ~ function* ~ "}" }
+super_class = { ("<" ~ identifier)? }
+funDecl   =  {"fun" ~ function }
+varDecl   =  {"var" ~ identifier ~ ("=" ~ expression)? ~ ";"}
 
-statement =  {
+statement = _{
     forStmt
   | ifStmt
   | printStmt
@@ -23,8 +24,11 @@ statement =  {
 
 exprStmt   =  {expression ~ ";"}
 forStmt    =  {
-    "for" ~ "(" ~ (varDecl|exprStmt|";") ~ expression? ~ ";" ~ expression? ~ ")" ~ statement
+    "for" ~ "(" ~ for_init ~ for_cond ~ ";" ~ for_step ~ ")" ~ statement
 }
+for_init = { varDecl|exprStmt|";" }
+for_cond = { expression? }
+for_step = { expression? }
 ifStmt     =  {
     "if" ~ "(" ~ expression ~ ")" ~ statement ~ ("else" ~ statement)?
 }
@@ -33,10 +37,11 @@ returnStmt =  {"return" ~ expression? ~ ";"}
 whileStmt  =  {"while" ~ "(" ~ expression ~ ")" ~ statement}
 block      =  {"{" ~ declaration* ~ "}"}
 
-expression =  {assignment}
+expression =  _{assignment}
 
 assignment =  {
-    (call ~ "=")* ~ logic_or
+    call ~ "=" ~ assignment | 
+    logic_or
 }
 
 logic_or         =  {logic_and ~ ("or" ~ logic_and)*}
@@ -49,31 +54,32 @@ term             =  {factor ~ (term_op ~ factor)*}
 term_op          =  {"-"|"+"}
 factor           =  {unary ~ (factor_op ~ unary)*}
 factor_op        =  {"/"|"*"}
-unary            =  {unary_op* ~ call}
+unary            =  {unary_op ~ unary|call}
 unary_op         =  {"!"|"-"}
-call             =  {primary ~ ("(" ~ arguments? ~ ")"|"." ~ IDENTIFIER)*}
+call             =  {primary ~ ("(" ~ arguments ~ ")"|"." ~ identifier)*}
 primary          =  {
     primary_keywords
-  | NUMBER
-  | STRING
-  | IDENTIFIER
+  | number
+  | string
+  | super_dot ~ identifier
   | "(" ~ expression ~ ")"
-  | "super" ~ "." ~ IDENTIFIER
+  | identifier
 }
+super_dot = { "super" ~ "." }
 primary_keywords =  {
     "true"
   | "false"
   | "nil"
   | "this"
 }
-function         =  {IDENTIFIER ~ "(" ~ parameters? ~ ")" ~ block}
-parameters       =  {IDENTIFIER ~ ("," ~ IDENTIFIER)*}
-arguments        =  {expression ~ ("," ~ expression)*}
-NUMBER           =  {DIGIT+ ~ ("." ~ DIGIT+)?}
-STRING           =  {"\"" ~ (!("\"") ~ ANY) ~ "\""}
-IDENTIFIER       =  {ALPHA ~ (ALPHA|DIGIT)*}
-ALPHA            =  {'a' .. 'z'|'A' .. 'Z'|"_"}
-DIGIT            =  {'0' .. '9'}
+function         =  {identifier ~ "(" ~ parameters ~ ")" ~ block}
+parameters       =  {(identifier ~ ("," ~ identifier)*)?}
+arguments        =  {(expression ~ ("," ~ expression)*)?}
+number           = @{digit+ ~ ("." ~ digit+)?}
+string           = @{"\"" ~ (!("\"") ~ ANY)* ~ "\""}
+identifier       = @{alpha ~ (alpha|digit)*}
+alpha            =  {'a' .. 'z'|'A' .. 'Z'|"_"}
+digit            =  {'0' .. '9'}
 
 WHITESPACE = _{" "|"\t"|"\r"|"\n"}
 COMMENT    = _{"//" ~ (!("\n") ~ ANY)*}
