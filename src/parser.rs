@@ -3,7 +3,7 @@ use super::object::*;
 
 use pest::Parser;
 #[derive(Parser)]
-#[grammar = "lox.pest"]
+#[grammar = "loxxol.pest"]
 struct LoxParser;
 use pest::error::Error;
 
@@ -23,101 +23,58 @@ pub fn parse(s: &str) -> Result<Vec<Stmt>, Error<Rule>> {
                     _ => panic!("invaild left value")
                 }
             },
-            Rule::logic_or => {
-                parse_logic_or(first)
+            Rule::binary => {
+                inner = first.into_inner();
+                parse_binary(&mut inner, 0)
             },
             _ => unreachable!()
         }
     }
     
-    fn parse_logic_or(pair: Pair<Rule>) -> Expr {
-        let mut iter = pair.into_inner();
-        let mut expr = parse_logic_and(iter.next().unwrap());
-        while let Some(x) = iter.next() {
-            expr = Expr::Binary(BinaryOp::OR, Box::new(expr), Box::new(parse_logic_and(x)));
+    fn get_precedence(op: BinaryOp) -> u8 {
+        use BinaryOp::*;
+        match op {
+            OR | AND => 1,
+            NEQ | EQ => 2,
+            LT | LE | GT | GE => 3,
+            ADD | SUB => 4,
+            MUL | DIV => 5,
         }
-        expr
+    }
+    fn get_binary_op(op: &str) -> BinaryOp {
+        use BinaryOp::*;
+        match op {
+            "or" => OR,
+            "and" => AND,
+            "!=" => NEQ,
+            "==" => EQ,
+            ">=" => GE,
+            ">" => GT,
+            "<=" => LE,
+            "<" => LT,
+            "-" => SUB,
+            "+" => ADD,
+            "/" => DIV,
+            "*" => MUL,
+            _ => unreachable!()
+        }
     }
 
-    fn parse_logic_and(pair: Pair<Rule>) -> Expr {
-        let mut iter = pair.into_inner();
-        let mut expr = parse_equality(iter.next().unwrap());
-        while let Some(x) = iter.next() {
-            expr = Expr::Binary(BinaryOp::AND, Box::new(expr), Box::new(parse_equality(x)));
+    fn parse_binary(pairs: &mut Pairs<Rule>, min_precedence: u8) -> Expr {
+        let mut lhs = parse_unary(pairs.next().unwrap());
+        while let Some(op) = pairs.peek() {
+            let op = get_binary_op(op.as_str());
+            let cur_precedence = get_precedence(op);
+            if cur_precedence <= min_precedence {
+                break;
+            }
+            pairs.next();
+            let rhs = parse_binary(pairs, cur_precedence);
+            lhs = Expr::Binary(op, Box::new(lhs), Box::new(rhs))
         }
-        expr
+        lhs
     }
     
-    fn parse_equality(pair: Pair<Rule>) -> Expr {
-        let mut iter = pair.into_inner();
-        let mut expr = parse_comparison(iter.next().unwrap());
-        while let Some(op) = iter.next() {
-            let x = iter.next().unwrap();
-            expr = Expr::Binary(
-                match op.as_str() {
-                    "!=" => BinaryOp::NEQ,
-                    "==" => BinaryOp::EQ,
-                    _ => unreachable!()
-                }, 
-                Box::new(expr), 
-                Box::new(parse_comparison(x)));
-        }
-        expr
-    }
-
-    fn parse_comparison(pair: Pair<Rule>) -> Expr {
-        let mut iter = pair.into_inner();
-        let mut expr = parse_term(iter.next().unwrap());
-        while let Some(op) = iter.next() {
-            let x = iter.next().unwrap();
-            expr = Expr::Binary(
-                match op.as_str() {
-                    ">=" => BinaryOp::GE,
-                    ">" => BinaryOp::GT,
-                    "<=" => BinaryOp::LE,
-                    "<" => BinaryOp::LT,
-                    _ => unreachable!()
-                }, 
-                Box::new(expr), 
-                Box::new(parse_term(x)));
-        }
-        expr
-    }
-
-    fn parse_term(pair: Pair<Rule>) -> Expr {
-        let mut iter = pair.into_inner();
-        let mut expr = parse_factor(iter.next().unwrap());
-        while let Some(op) = iter.next() {
-            let x = iter.next().unwrap();
-            expr = Expr::Binary(
-                match op.as_str() {
-                    "+" => BinaryOp::ADD,
-                    "-" => BinaryOp::SUB,
-                    _ => unreachable!()
-                }, 
-                Box::new(expr), 
-                Box::new(parse_factor(x)));
-        }
-        expr
-    }
-
-    fn parse_factor(pair: Pair<Rule>) -> Expr {
-        let mut iter = pair.into_inner();
-        let mut expr = parse_unary(iter.next().unwrap());
-        while let Some(op) = iter.next() {
-            let x = iter.next().unwrap();
-            expr = Expr::Binary(
-                match op.as_str() {
-                    "*" => BinaryOp::MUL,
-                    "/" => BinaryOp::DIV,
-                    _ => unreachable!()
-                }, 
-                Box::new(expr), 
-                Box::new(parse_unary(x)));
-        }
-        expr
-    }
-
     fn parse_unary(pair: Pair<Rule>) -> Expr {
         let mut inner = pair.into_inner();
         let first = inner.next().unwrap();

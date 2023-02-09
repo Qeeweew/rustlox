@@ -34,9 +34,9 @@ fn run(s: String) {
     let mut interpreter = Interpreter::new(vec);
     match res {
         Ok(ast) => {
-            // for stmt in &ast {
-            //     println!("{}", stmt)
-            // }
+            for stmt in &ast {
+                println!("{}", stmt)
+            }
             let res = interpreter.interpret(ast);
             match res {
                 Ok(_) => println!("success!"),
