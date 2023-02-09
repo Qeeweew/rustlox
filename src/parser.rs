@@ -119,24 +119,13 @@ pub fn parse(s: &str) -> Result<Vec<Stmt>, Error<Rule>> {
                     _ => unreachable!()
                 }
             }
-            Rule::number => {
-                Expr::Literal(Object::Number(first.as_str().parse().unwrap()))
-            }
-            Rule::string => {
-                Expr::Literal(Object::String(Box::new(first.as_str().to_owned())))
-            }
-            Rule::super_dot => {
-                Expr::Super(Identifier::new("super".to_owned()), parse_identifier(inner.next().unwrap())) 
-            }
-            Rule::assignment => {
-                parse_expression(first)
-            }
-            Rule::identifier => {
-                Expr::Varible(parse_identifier(first))
-            }
+            Rule::number => Expr::Literal(Object::Number(first.as_str().parse().unwrap())),
+            Rule::string => Expr::Literal(Object::String(Box::new(first.as_str().to_owned()))),
+            Rule::super_dot => Expr::Super(Identifier::new("super".to_owned()), parse_identifier(inner.next().unwrap())),
+            Rule::assignment => parse_expression(first),
+            Rule::identifier => Expr::Varible(parse_identifier(first)),
             _ => unreachable!()
         }
-
     }
     
     fn parse_identifier(pair: Pair<Rule>) -> Identifier {
