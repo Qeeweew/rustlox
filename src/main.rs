@@ -4,7 +4,6 @@ extern crate pest;
 extern crate lazy_static;
 #[macro_use]
 extern crate pest_derive;
-mod parser2;
 mod object;
 mod interpreter;
 mod resolver;
